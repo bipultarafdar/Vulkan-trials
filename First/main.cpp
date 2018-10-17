@@ -105,7 +105,7 @@ int main()
     }
 
 	// 2. Enumerate Devices
-	std::vector<vk::PhysicalDevice> physicalDevices = instance.enumeratePhysicalDevices(NULL);
+	std::vector<vk::PhysicalDevice> physicalDevices = instance.enumeratePhysicalDevices();
 	assert(physicalDevices.data() != NULL && physicalDevices.size() > 0);
 
 	// Select the first device
@@ -117,7 +117,7 @@ int main()
 		.setPQueuePriorities({ 0 })
 		.setQueueCount(1);
 
-	std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties(NULL);
+	std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
 	assert(queueFamilyProperties.data() != NULL && queueFamilyProperties.size() > 0);
 	bool found = false;
 	for (int i = 0; i < queueFamilyProperties.size(); i++) {
@@ -162,7 +162,7 @@ int main()
 	for (int i = 0; i < queueFamilyProperties.size(); i++) {
 		if (!(queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics)) {
 			if (graphicsQueueFamilyIndex == UINT32_MAX) graphicsQueueFamilyIndex = i;
-			if (physicalDevice.getSurfaceSupportKHR(i, surface) == true) {
+			if (physicalDevice.getSurfaceSupportKHR(i, surface)) {
 				graphicsQueueFamilyIndex = i;
 				presentQueueFamilyIndex = i;
 				break;
@@ -228,6 +228,23 @@ int main()
 
 	vk::SwapchainKHR swapchain = device.createSwapchainKHR(swapchainInfo);
 	std::vector<vk::Image> swapchainImages = device.getSwapchainImagesKHR(swapchain);
+	std::vector<vk::ImageView> bufferImageViews(swapchainImages.size());
+
+	for (int i = 0; i < swapchainImages.size(); i++) {
+		vk::ImageSubresourceRange subresourceRange = vk::ImageSubresourceRange()
+			.setAspectMask(vk::ImageAspectFlagBits::eColor)
+			.setLevelCount(1)
+			.setLayerCount(1);
+		vk::ImageViewCreateInfo colorImageView = vk::ImageViewCreateInfo()
+			.setFlags((vk::ImageViewCreateFlagBits)0)
+			.setImage(swapchainImages[i])
+			.setViewType(vk::ImageViewType::e2D)
+			.setFormat(format)
+			.setComponents(vk::ComponentMapping(vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA))
+			.setSubresourceRange(subresourceRange);
+
+		bufferImageViews[i] = device.createImageView(colorImageView);
+	}
 
     // This is where most initializtion for a program should be performed
 
@@ -254,6 +271,10 @@ int main()
     }
 
 	//Clean
+	for (int i = 0; i < swapchainImages.size(); i++) {
+		device.destroyImageView(bufferImageViews[i]);
+	}
+	device.destroySwapchainKHR(swapchain);
 	device.freeCommandBuffers(commandPool, commandBuffers);
 	device.destroyCommandPool(commandPool);
 	device.destroy();
