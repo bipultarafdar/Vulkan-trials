@@ -44,6 +44,10 @@ Create and destroy a Vulkan surface on an SDL window.
 #include <vector>
 #include <cassert>
 
+#define WIDTH 1280
+#define HEIGHT 720
+#define NUM_SAMPLES vk::SampleCountFlagBits::e1
+
 int main()
 {
     // Create an SDL window that supports Vulkan rendering.
@@ -52,7 +56,7 @@ int main()
         return 1;
     }
     SDL_Window* window = SDL_CreateWindow("Vulkan Window", SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED, 1280, 720, SDL_WINDOW_VULKAN);
+        SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, SDL_WINDOW_VULKAN);
     if(window == NULL) {
         std::cout << "Could not create SDL window." << std::endl;
         return 1;
@@ -129,9 +133,12 @@ int main()
 	}
 	assert(found);
 
+	const char * deviceExtensions[1] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
 	vk::DeviceCreateInfo deviceInfo = vk::DeviceCreateInfo()
 		.setQueueCreateInfoCount(1)
-		.setPQueueCreateInfos(&queueInfo);
+		.setPQueueCreateInfos(&queueInfo)
+		.setEnabledExtensionCount(1)
+		.setPpEnabledExtensionNames(deviceExtensions);
 
 	vk::Device device = physicalDevice.createDevice(deviceInfo);
 
@@ -160,7 +167,7 @@ int main()
 	uint32_t graphicsQueueFamilyIndex = UINT32_MAX;
 	uint32_t presentQueueFamilyIndex = UINT32_MAX;
 	for (int i = 0; i < queueFamilyProperties.size(); i++) {
-		if (!(queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics)) {
+		if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics) {
 			if (graphicsQueueFamilyIndex == UINT32_MAX) graphicsQueueFamilyIndex = i;
 			if (physicalDevice.getSurfaceSupportKHR(i, surface)) {
 				graphicsQueueFamilyIndex = i;
@@ -230,11 +237,12 @@ int main()
 	std::vector<vk::Image> swapchainImages = device.getSwapchainImagesKHR(swapchain);
 	std::vector<vk::ImageView> bufferImageViews(swapchainImages.size());
 
+	vk::ImageSubresourceRange subresourceRange = vk::ImageSubresourceRange()
+		.setAspectMask(vk::ImageAspectFlagBits::eColor)
+		.setLevelCount(1)
+		.setLayerCount(1);
+
 	for (int i = 0; i < swapchainImages.size(); i++) {
-		vk::ImageSubresourceRange subresourceRange = vk::ImageSubresourceRange()
-			.setAspectMask(vk::ImageAspectFlagBits::eColor)
-			.setLevelCount(1)
-			.setLayerCount(1);
 		vk::ImageViewCreateInfo colorImageView = vk::ImageViewCreateInfo()
 			.setFlags((vk::ImageViewCreateFlagBits)0)
 			.setImage(swapchainImages[i])
@@ -245,6 +253,66 @@ int main()
 
 		bufferImageViews[i] = device.createImageView(colorImageView);
 	}
+
+	// 6. Init Depth Buffer
+	vk::Format depthFormat = vk::Format::eD16Unorm;
+	vk::ImageCreateInfo imageInfo = vk::ImageCreateInfo()
+		.setImageType(vk::ImageType::e2D)
+		.setFormat(depthFormat)
+		.setExtent(vk::Extent3D(WIDTH, HEIGHT, 1))
+		.setMipLevels(1)
+		.setArrayLayers(1)
+		.setSamples(NUM_SAMPLES)
+		.setInitialLayout(vk::ImageLayout::eUndefined)
+		.setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment)
+		.setSharingMode(vk::SharingMode::eExclusive);
+		//.setFlags(vk::ImageCreateFlags());
+	vk::FormatProperties props = physicalDevice.getFormatProperties(depthFormat);
+	if (props.linearTilingFeatures == vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
+		imageInfo.setTiling(vk::ImageTiling::eLinear);
+	}
+	else if (props.optimalTilingFeatures == vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
+		imageInfo.setTiling(vk::ImageTiling::eOptimal);
+	}
+	else {
+		std::cout << "VK_FORMAT_D16_UNORM Unsupported.\n";
+		exit(-1);
+	}
+
+	vk::ImageSubresourceRange depthSubresourceRange = vk::ImageSubresourceRange()
+		.setAspectMask(vk::ImageAspectFlagBits::eDepth)
+		.setLevelCount(1)
+		.setLayerCount(1);
+	vk::ImageViewCreateInfo viewInfo = vk::ImageViewCreateInfo()
+		.setImage(nullptr)
+		.setFormat(depthFormat)
+		.setComponents(vk::ComponentMapping(vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA))
+		.setViewType(vk::ImageViewType::e2D)
+		.setSubresourceRange(depthSubresourceRange);
+
+	vk::Image depthImage = device.createImage(imageInfo);
+	vk::MemoryRequirements memReqs = device.getImageMemoryRequirements(depthImage);
+	vk::MemoryAllocateInfo memAlloc = vk::MemoryAllocateInfo()
+		.setAllocationSize(memReqs.size);
+	vk::PhysicalDeviceMemoryProperties memoryProperties = physicalDevice.getMemoryProperties();
+
+	uint32_t typeBits = memReqs.memoryTypeBits;
+	for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
+		if (typeBits & 1 == 1) {
+			if (memoryProperties.memoryTypes[i].propertyFlags == vk::MemoryPropertyFlagBits::eDeviceLocal) {
+				memAlloc.setMemoryTypeIndex(i);
+				break;
+			}
+		}
+		typeBits >>= 1;
+	}
+
+	vk::DeviceMemory depthMem = device.allocateMemory(memAlloc);
+	device.bindImageMemory(depthImage, depthMem, 0);
+
+	viewInfo.setImage(depthImage);
+	vk::ImageView depthImageView = device.createImageView(viewInfo);
+		
 
     // This is where most initializtion for a program should be performed
 
@@ -271,6 +339,9 @@ int main()
     }
 
 	//Clean
+	device.destroyImageView(depthImageView);
+	device.destroyImage(depthImage);
+	device.freeMemory(depthMem);
 	for (int i = 0; i < swapchainImages.size(); i++) {
 		device.destroyImageView(bufferImageViews[i]);
 	}
