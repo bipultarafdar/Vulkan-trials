@@ -39,6 +39,7 @@ Create and destroy a Vulkan surface on an SDL window.
 #include <SDL2/SDL_syswm.h>
 #include <SDL2/SDL_vulkan.h>
 #include <vulkan/vulkan.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <iostream>
 #include <vector>
@@ -268,10 +269,10 @@ int main()
 		.setSharingMode(vk::SharingMode::eExclusive);
 		//.setFlags(vk::ImageCreateFlags());
 	vk::FormatProperties props = physicalDevice.getFormatProperties(depthFormat);
-	if (props.linearTilingFeatures == vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
+	if (props.linearTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
 		imageInfo.setTiling(vk::ImageTiling::eLinear);
 	}
-	else if (props.optimalTilingFeatures == vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
+	else if (props.optimalTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
 		imageInfo.setTiling(vk::ImageTiling::eOptimal);
 	}
 	else {
@@ -292,27 +293,188 @@ int main()
 
 	vk::Image depthImage = device.createImage(imageInfo);
 	vk::MemoryRequirements memReqs = device.getImageMemoryRequirements(depthImage);
-	vk::MemoryAllocateInfo memAlloc = vk::MemoryAllocateInfo()
+	vk::MemoryAllocateInfo memAlloc1 = vk::MemoryAllocateInfo()
 		.setAllocationSize(memReqs.size);
 	vk::PhysicalDeviceMemoryProperties memoryProperties = physicalDevice.getMemoryProperties();
 
 	uint32_t typeBits = memReqs.memoryTypeBits;
-	for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
-		if (typeBits & 1 == 1) {
+	for (uint32_t i = 0; i < memoryProperties.memoryTypeCount; i++) {
+		if ((typeBits & 1) == 1) {
 			if (memoryProperties.memoryTypes[i].propertyFlags == vk::MemoryPropertyFlagBits::eDeviceLocal) {
-				memAlloc.setMemoryTypeIndex(i);
+				memAlloc1.setMemoryTypeIndex(i);
 				break;
 			}
 		}
 		typeBits >>= 1;
 	}
 
-	vk::DeviceMemory depthMem = device.allocateMemory(memAlloc);
+	vk::DeviceMemory depthMem = device.allocateMemory(memAlloc1);
 	device.bindImageMemory(depthImage, depthMem, 0);
 
 	viewInfo.setImage(depthImage);
 	vk::ImageView depthImageView = device.createImageView(viewInfo);
-		
+
+	// 7. Create Uniform Buffer
+	glm::mat4 projection = glm::perspective(glm::radians(45.0f), 1.0f, 0.1f, 100.0f);
+	glm::mat4 view = glm::lookAt(glm::vec3(-5, 3, -10),  // Camera is at (-5,3,-10), in World Space
+		glm::vec3(0, 0, 0),     // and looks at the origin
+		glm::vec3(0, -1, 0)     // Head is up (set to 0,-1,0 to look upside-down)
+	);
+	glm::mat4 model = glm::mat4(1.0f);
+
+	// Vulkan clip space has inverted Y and half Z.
+	// clang-format off
+	glm::mat4 clip = glm::mat4(1.0f, 0.0f, 0.0f, 0.0f,
+		0.0f, -1.0f, 0.0f, 0.0f,
+		0.0f, 0.0f, 0.5f, 0.0f,
+		0.0f, 0.0f, 0.5f, 1.0f);
+	// clang-format on
+	glm::mat4 mvp = clip * projection * view * model;
+
+	vk::BufferCreateInfo bufferCInfo = vk::BufferCreateInfo()
+		.setUsage(vk::BufferUsageFlagBits::eUniformBuffer)
+		.setSize(sizeof(mvp))
+		.setSharingMode(vk::SharingMode::eExclusive);
+
+	vk::Buffer buffer = device.createBuffer(bufferCInfo);
+
+	memReqs = device.getBufferMemoryRequirements(buffer);
+	vk::MemoryAllocateInfo memAlloc2 = vk::MemoryAllocateInfo()
+		.setAllocationSize(memReqs.size);
+
+	typeBits = memReqs.memoryTypeBits;
+	for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
+		if (typeBits & 1 == 1) {
+			if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible|vk::MemoryPropertyFlagBits::eHostCoherent)) {
+				memAlloc2.setMemoryTypeIndex(i);
+				break;
+			}
+		}
+		typeBits >>= 1;
+	}
+
+	vk::DeviceMemory bufferMem = device.allocateMemory(memAlloc2);
+
+	void * memPtr = device.mapMemory(bufferMem, 0, memReqs.size);
+	memcpy(memPtr, &mvp, sizeof(mvp));
+	device.unmapMemory(bufferMem);
+
+	device.bindBufferMemory(buffer, bufferMem, 0);
+
+	vk::DescriptorBufferInfo bufferInfo = vk::DescriptorBufferInfo()
+		.setBuffer(buffer)
+		.setOffset(0)
+		.setRange(sizeof(mvp));
+	
+	// 8. Init Pipeline Layout
+	vk::DescriptorSetLayoutBinding layoutBinding = vk::DescriptorSetLayoutBinding()
+		.setDescriptorCount(1)
+		.setStageFlags(vk::ShaderStageFlagBits::eVertex);
+	vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo = vk::DescriptorSetLayoutCreateInfo()
+		.setBindingCount(1)
+		.setPBindings(&layoutBinding);
+
+	vk::DescriptorSetLayout descriptorLayout = device.createDescriptorSetLayout(descriptorLayoutInfo);
+
+	vk::PipelineLayoutCreateInfo pipelineLayoutInfo = vk::PipelineLayoutCreateInfo(vk::PipelineLayoutCreateFlags(), 1, &descriptorLayout);
+
+	vk::PipelineLayout pipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
+
+	// 9. Init Descriptor Set
+	vk::DescriptorPoolSize typeCount = vk::DescriptorPoolSize()
+		.setType(vk::DescriptorType::eUniformBuffer)
+		.setDescriptorCount(1);
+	vk::DescriptorPoolCreateInfo desciptorPoolInfo = vk::DescriptorPoolCreateInfo()
+		.setMaxSets(1)
+		.setPoolSizeCount(1)
+		.setPPoolSizes(&typeCount);
+
+	vk::DescriptorPool descriptorPool = device.createDescriptorPool(desciptorPoolInfo);
+
+	vk::DescriptorSetAllocateInfo allocInfo = vk::DescriptorSetAllocateInfo()
+		.setDescriptorPool(descriptorPool)
+		.setDescriptorSetCount(1)
+		.setPSetLayouts(&descriptorLayout);
+
+	std::vector<vk::DescriptorSet> descriptorSets = device.allocateDescriptorSets(allocInfo);
+
+	std::vector<vk::WriteDescriptorSet> writes(1);
+	writes[0] = vk::WriteDescriptorSet()
+		.setDstSet(descriptorSets[0])
+		.setDescriptorCount(1)
+		.setDescriptorType(vk::DescriptorType::eUniformBuffer)
+		.setPBufferInfo(&bufferInfo);
+
+	device.updateDescriptorSets(writes, NULL);
+
+	// 10. Init Render Pass
+	uint32_t currentBuffer = 0;
+	vk::SemaphoreCreateInfo imageSemaphoreInfo = vk::SemaphoreCreateInfo();
+	vk::Semaphore imageAcquiredSemaphore = device.createSemaphore(imageSemaphoreInfo);
+	device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, nullptr, &currentBuffer);
+
+	vk::AttachmentDescription attachments[2];
+	attachments[0] = vk::AttachmentDescription()
+		.setFormat(format)
+		.setSamples(vk::SampleCountFlagBits::e1)
+		.setLoadOp(vk::AttachmentLoadOp::eClear)
+		.setStoreOp(vk::AttachmentStoreOp::eStore)
+		.setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
+		.setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
+		.setInitialLayout(vk::ImageLayout::eUndefined)
+		.setFinalLayout(vk::ImageLayout::ePresentSrcKHR);
+
+	attachments[1] = vk::AttachmentDescription()
+		.setFormat(depthFormat)
+		.setSamples(vk::SampleCountFlagBits::e1)
+		.setLoadOp(vk::AttachmentLoadOp::eClear)
+		.setStoreOp(vk::AttachmentStoreOp::eStore)
+		.setStencilLoadOp(vk::AttachmentLoadOp::eDontCare)
+		.setStencilStoreOp(vk::AttachmentStoreOp::eDontCare)
+		.setInitialLayout(vk::ImageLayout::eUndefined)
+		.setFinalLayout(vk::ImageLayout::eDepthStencilAttachmentOptimal);
+
+	vk::SubpassDescription subpass = vk::SubpassDescription()
+		.setPipelineBindPoint(vk::PipelineBindPoint::eGraphics)
+		.setColorAttachmentCount(1)
+		.setPColorAttachments(new vk::AttachmentReference(0, vk::ImageLayout::eColorAttachmentOptimal))
+		.setPDepthStencilAttachment(new vk::AttachmentReference(1, vk::ImageLayout::eDepthStencilAttachmentOptimal));
+
+	vk::RenderPassCreateInfo rpInfo = vk::RenderPassCreateInfo()
+		.setAttachmentCount(2)
+		.setPAttachments(attachments)
+		.setSubpassCount(1)
+		.setPSubpasses(&subpass);
+
+	vk::RenderPass renderPass = device.createRenderPass(rpInfo);
+
+	// 11. Init Shaders
+
+	static const char *vertShaderText =
+		"#version 400\n"
+		"#extension GL_ARB_separate_shader_objects : enable\n"
+		"#extension GL_ARB_shading_language_420pack : enable\n"
+		"layout (std140, binding = 0) uniform bufferVals {\n"
+		"    mat4 mvp;\n"
+		"} myBufferVals;\n"
+		"layout (location = 0) in vec4 pos;\n"
+		"layout (location = 1) in vec4 inColor;\n"
+		"layout (location = 0) out vec4 outColor;\n"
+		"void main() {\n"
+		"   outColor = inColor;\n"
+		"   gl_Position = myBufferVals.mvp * pos;\n"
+		"}\n";
+
+	static const char *fragShaderText =
+		"#version 400\n"
+		"#extension GL_ARB_separate_shader_objects : enable\n"
+		"#extension GL_ARB_shading_language_420pack : enable\n"
+		"layout (location = 0) in vec4 color;\n"
+		"layout (location = 0) out vec4 outColor;\n"
+		"void main() {\n"
+		"   outColor = color;\n"
+		"}\n";
+
 
     // This is where most initializtion for a program should be performed
 
@@ -339,6 +501,12 @@ int main()
     }
 
 	//Clean
+	device.destroyRenderPass(renderPass);
+	device.destroySemaphore(imageAcquiredSemaphore);
+	device.destroyDescriptorPool(descriptorPool);
+	device.destroyDescriptorSetLayout(descriptorLayout);
+	device.destroyBuffer(buffer);
+	device.freeMemory(bufferMem);
 	device.destroyImageView(depthImageView);
 	device.destroyImage(depthImage);
 	device.freeMemory(depthMem);
