@@ -17,12 +17,12 @@
  * limitations under the License.
  */
 
-/*
-Vulkan C++ Windowed Project Template
-Create and destroy a Vulkan surface on an SDL window.
-*/
+ /*
+ Vulkan C++ Windowed Project Template
+ Create and destroy a Vulkan surface on an SDL window.
+ */
 
-// Enable the WSI extensions
+ // Enable the WSI extensions
 #if defined(__ANDROID__)
 #define VK_USE_PLATFORM_ANDROID_KHR
 #elif defined(__linux__)
@@ -40,74 +40,93 @@ Create and destroy a Vulkan surface on an SDL window.
 #include <SDL2/SDL_vulkan.h>
 #include <vulkan/vulkan.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include "SPIRV/GlslangToSpv.h"
 
 #include <iostream>
 #include <vector>
 #include <cassert>
+#include <fstream>
 
 #define WIDTH 1280
 #define HEIGHT 720
 #define NUM_SAMPLES vk::SampleCountFlagBits::e1
 
+static std::vector<uint32_t> readFile(const std::string& filename) {
+	std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+	if (!file.is_open()) {
+		throw std::runtime_error("failed to open file!");
+	}
+
+	size_t fileSize = (size_t)file.tellg();
+	std::vector<uint32_t> buffer(fileSize);
+	file.seekg(0);
+	file.read(reinterpret_cast<char*>(buffer.data()), fileSize);
+	file.close();
+
+	return buffer;
+}
+
 int main()
 {
-    // Create an SDL window that supports Vulkan rendering.
-    if(SDL_Init(SDL_INIT_VIDEO) != 0) {
-        std::cout << "Could not initialize SDL." << std::endl;
-        return 1;
-    }
-    SDL_Window* window = SDL_CreateWindow("Vulkan Window", SDL_WINDOWPOS_CENTERED,
-        SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, SDL_WINDOW_VULKAN);
-    if(window == NULL) {
-        std::cout << "Could not create SDL window." << std::endl;
-        return 1;
-    }
-    
-    // Get WSI extensions from SDL (we can add more if we like - we just can't remove these)
-    unsigned extension_count;
-    if(!SDL_Vulkan_GetInstanceExtensions(window, &extension_count, NULL)) {
-        std::cout << "Could not get the number of required instance extensions from SDL." << std::endl;
-        return 1;
-    }
-    std::vector<const char*> extensions(extension_count);
-    if(!SDL_Vulkan_GetInstanceExtensions(window, &extension_count, extensions.data())) {
-        std::cout << "Could not get the names of required instance extensions from SDL." << std::endl;
-        return 1;
-    }
+	// Create an SDL window that supports Vulkan rendering.
+	if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+		std::cout << "Could not initialize SDL." << std::endl;
+		return 1;
+	}
+	SDL_Window* window = SDL_CreateWindow("Vulkan Window", SDL_WINDOWPOS_CENTERED,
+		SDL_WINDOWPOS_CENTERED, WIDTH, HEIGHT, SDL_WINDOW_VULKAN);
+	if (window == NULL) {
+		std::cout << "Could not create SDL window." << std::endl;
+		return 1;
+	}
 
-    // Use validation layers if this is a debug build
-    std::vector<const char*> layers;
+	// Get WSI extensions from SDL (we can add more if we like - we just can't remove these)
+	unsigned extension_count;
+	if (!SDL_Vulkan_GetInstanceExtensions(window, &extension_count, NULL)) {
+		std::cout << "Could not get the number of required instance extensions from SDL." << std::endl;
+		return 1;
+	}
+	std::vector<const char*> extensions(extension_count);
+	if (!SDL_Vulkan_GetInstanceExtensions(window, &extension_count, extensions.data())) {
+		std::cout << "Could not get the names of required instance extensions from SDL." << std::endl;
+		return 1;
+	}
+
+	// Use validation layers if this is a debug build
+	std::vector<const char*> layers;
 #if defined(_DEBUG)
-    layers.push_back("VK_LAYER_LUNARG_standard_validation");
+	layers.push_back("VK_LAYER_LUNARG_standard_validation");
 #endif
 
-    // vk::ApplicationInfo allows the programmer to specifiy some basic information about the
-    // program, which can be useful for layers and tools to provide more debug information.
-    vk::ApplicationInfo appInfo = vk::ApplicationInfo()
-        .setPApplicationName("Vulkan C++ Windowed Program Template")
-        .setApplicationVersion(1)
-        .setPEngineName("LunarG SDK")
-        .setEngineVersion(1)
-        .setApiVersion(VK_API_VERSION_1_0);
+	// vk::ApplicationInfo allows the programmer to specifiy some basic information about the
+	// program, which can be useful for layers and tools to provide more debug information.
+	vk::ApplicationInfo appInfo = vk::ApplicationInfo()
+		.setPApplicationName("Vulkan C++ Windowed Program Template")
+		.setApplicationVersion(1)
+		.setPEngineName("LunarG SDK")
+		.setEngineVersion(1)
+		.setApiVersion(VK_API_VERSION_1_0);
 
-    // vk::InstanceCreateInfo is where the programmer specifies the layers and/or extensions that
-    // are needed.
-    vk::InstanceCreateInfo instInfo = vk::InstanceCreateInfo()
-        .setFlags(vk::InstanceCreateFlags())
-        .setPApplicationInfo(&appInfo)
-        .setEnabledExtensionCount(static_cast<uint32_t>(extensions.size()))
-        .setPpEnabledExtensionNames(extensions.data())
-        .setEnabledLayerCount(static_cast<uint32_t>(layers.size()))
-        .setPpEnabledLayerNames(layers.data());
+	// vk::InstanceCreateInfo is where the programmer specifies the layers and/or extensions that
+	// are needed.
+	vk::InstanceCreateInfo instInfo = vk::InstanceCreateInfo()
+		.setFlags(vk::InstanceCreateFlags())
+		.setPApplicationInfo(&appInfo)
+		.setEnabledExtensionCount(static_cast<uint32_t>(extensions.size()))
+		.setPpEnabledExtensionNames(extensions.data())
+		.setEnabledLayerCount(static_cast<uint32_t>(layers.size()))
+		.setPpEnabledLayerNames(layers.data());
 
-    // Create the Vulkan instance.
-    vk::Instance instance;
-    try {
-        instance = vk::createInstance(instInfo);
-    } catch(const std::exception& e) {
-        std::cout << "Could not create a Vulkan instance: " << e.what() << std::endl;
-        return 1;
-    }
+	// Create the Vulkan instance.
+	vk::Instance instance;
+	try {
+		instance = vk::createInstance(instInfo);
+	}
+	catch (const std::exception& e) {
+		std::cout << "Could not create a Vulkan instance: " << e.what() << std::endl;
+		return 1;
+	}
 
 	// 2. Enumerate Devices
 	std::vector<vk::PhysicalDevice> physicalDevices = instance.enumeratePhysicalDevices();
@@ -115,11 +134,11 @@ int main()
 
 	// Select the first device
 	vk::PhysicalDevice physicalDevice = physicalDevices[0];
-	
-	// 3. Init the device
 
+	// 3. Init the device
+	float queuePrios[1] = { 0.0 };
 	vk::DeviceQueueCreateInfo queueInfo = vk::DeviceQueueCreateInfo()
-		.setPQueuePriorities({ 0 })
+		.setPQueuePriorities(queuePrios)
 		.setQueueCount(1);
 
 	std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
@@ -155,13 +174,13 @@ int main()
 	std::vector<vk::CommandBuffer> commandBuffers = device.allocateCommandBuffers(cmd);
 
 
-    // Create a Vulkan surface for rendering
-    VkSurfaceKHR c_surface;
-    if(!SDL_Vulkan_CreateSurface(window, static_cast<VkInstance>(instance), &c_surface)) {
-        std::cout << "Could not create a Vulkan surface." << std::endl;
-        return 1;
-    }
-    vk::SurfaceKHR surface(c_surface);
+	// Create a Vulkan surface for rendering
+	VkSurfaceKHR c_surface;
+	if (!SDL_Vulkan_CreateSurface(window, static_cast<VkInstance>(instance), &c_surface)) {
+		std::cout << "Could not create a Vulkan surface." << std::endl;
+		return 1;
+	}
+	vk::SurfaceKHR surface(c_surface);
 
 	// 5. Init Swapchain
 
@@ -211,6 +230,7 @@ int main()
 	for (int i = 0; i < sizeof(vk::CompositeAlphaFlagBitsKHR); i++) {
 		if (surfaceCapabilities.supportedCompositeAlpha & (vk::CompositeAlphaFlagBitsKHR)i) {
 			compositeAlpha = (vk::CompositeAlphaFlagBitsKHR)i;
+			break;
 		}
 	}
 
@@ -267,7 +287,7 @@ int main()
 		.setInitialLayout(vk::ImageLayout::eUndefined)
 		.setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment)
 		.setSharingMode(vk::SharingMode::eExclusive);
-		//.setFlags(vk::ImageCreateFlags());
+	//.setFlags(vk::ImageCreateFlags());
 	vk::FormatProperties props = physicalDevice.getFormatProperties(depthFormat);
 	if (props.linearTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
 		imageInfo.setTiling(vk::ImageTiling::eLinear);
@@ -345,7 +365,7 @@ int main()
 	typeBits = memReqs.memoryTypeBits;
 	for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
 		if (typeBits & 1 == 1) {
-			if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible|vk::MemoryPropertyFlagBits::eHostCoherent)) {
+			if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) {
 				memAlloc2.setMemoryTypeIndex(i);
 				break;
 			}
@@ -365,7 +385,7 @@ int main()
 		.setBuffer(buffer)
 		.setOffset(0)
 		.setRange(sizeof(mvp));
-	
+
 	// 8. Init Pipeline Layout
 	vk::DescriptorSetLayoutBinding layoutBinding = vk::DescriptorSetLayoutBinding()
 		.setDescriptorCount(1)
@@ -381,13 +401,13 @@ int main()
 	vk::PipelineLayout pipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
 
 	// 9. Init Descriptor Set
-	vk::DescriptorPoolSize typeCount = vk::DescriptorPoolSize()
+	vk::DescriptorPoolSize typeCount[1] = { vk::DescriptorPoolSize()
 		.setType(vk::DescriptorType::eUniformBuffer)
-		.setDescriptorCount(1);
+		.setDescriptorCount(1) };
 	vk::DescriptorPoolCreateInfo desciptorPoolInfo = vk::DescriptorPoolCreateInfo()
 		.setMaxSets(1)
 		.setPoolSizeCount(1)
-		.setPPoolSizes(&typeCount);
+		.setPPoolSizes(typeCount);
 
 	vk::DescriptorPool descriptorPool = device.createDescriptorPool(desciptorPoolInfo);
 
@@ -450,57 +470,56 @@ int main()
 
 	// 11. Init Shaders
 
-	static const char *vertShaderText =
-		"#version 400\n"
-		"#extension GL_ARB_separate_shader_objects : enable\n"
-		"#extension GL_ARB_shading_language_420pack : enable\n"
-		"layout (std140, binding = 0) uniform bufferVals {\n"
-		"    mat4 mvp;\n"
-		"} myBufferVals;\n"
-		"layout (location = 0) in vec4 pos;\n"
-		"layout (location = 1) in vec4 inColor;\n"
-		"layout (location = 0) out vec4 outColor;\n"
-		"void main() {\n"
-		"   outColor = inColor;\n"
-		"   gl_Position = myBufferVals.mvp * pos;\n"
-		"}\n";
 
-	static const char *fragShaderText =
-		"#version 400\n"
-		"#extension GL_ARB_separate_shader_objects : enable\n"
-		"#extension GL_ARB_shading_language_420pack : enable\n"
-		"layout (location = 0) in vec4 color;\n"
-		"layout (location = 0) out vec4 outColor;\n"
-		"void main() {\n"
-		"   outColor = color;\n"
-		"}\n";
+	auto vertShaderCode = readFile("shaders/vert.spv");
+	auto fragShaderCode = readFile("shaders/frag.spv");
 
+	vk::PipelineShaderStageCreateInfo shaderStages[2];
+	shaderStages[0] = vk::PipelineShaderStageCreateInfo()
+		.setStage(vk::ShaderStageFlagBits::eVertex)
+		.setPName("main");
+	shaderStages[1] = vk::PipelineShaderStageCreateInfo()
+		.setStage(vk::ShaderStageFlagBits::eFragment)
+		.setPName("main");
 
-    // This is where most initializtion for a program should be performed
+	vk::ShaderModuleCreateInfo moduleInfo = vk::ShaderModuleCreateInfo()
+		.setCodeSize(vertShaderCode.size() * sizeof(unsigned int))
+		.setPCode(vertShaderCode.data());
+	shaderStages[0].setModule(device.createShaderModule(moduleInfo));
 
-    // Poll for user input.
-    bool stillRunning = true;
-    while(stillRunning) {
+	moduleInfo.setCodeSize(fragShaderCode.size() * sizeof(unsigned int))
+		.setPCode(fragShaderCode.data());
+	shaderStages[1].setModule(device.createShaderModule(moduleInfo));
 
-        SDL_Event event;
-        while(SDL_PollEvent(&event)) {
+	//12. Init Frame Buffers
 
-            switch(event.type) {
+	// This is where most initializtion for a program should be performed
 
-            case SDL_QUIT:
-                stillRunning = false;
-                break;
+	// Poll for user input.
+	bool stillRunning = true;
+	while (stillRunning) {
 
-            default:
-                // Do nothing.
-                break;
-            }
-        }
+		SDL_Event event;
+		while (SDL_PollEvent(&event)) {
 
-        SDL_Delay(10);
-    }
+			switch (event.type) {
+
+			case SDL_QUIT:
+				stillRunning = false;
+				break;
+
+			default:
+				// Do nothing.
+				break;
+			}
+		}
+
+		SDL_Delay(10);
+	}
 
 	//Clean
+	device.destroyShaderModule(shaderStages[0].module);
+	device.destroyShaderModule(shaderStages[1].module);
 	device.destroyRenderPass(renderPass);
 	device.destroySemaphore(imageAcquiredSemaphore);
 	device.destroyDescriptorPool(descriptorPool);
@@ -518,11 +537,11 @@ int main()
 	device.destroyCommandPool(commandPool);
 	device.destroy();
 
-    // Clean up.
-    instance.destroySurfaceKHR(surface);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
-    instance.destroy();
+	// Clean up.
+	instance.destroySurfaceKHR(surface);
+	SDL_DestroyWindow(window);
+	SDL_Quit();
+	instance.destroy();
 
-    return 0;
+	return 0;
 }
