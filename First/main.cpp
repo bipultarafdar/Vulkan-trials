@@ -40,7 +40,6 @@
 #include <SDL2/SDL_vulkan.h>
 #include <vulkan/vulkan.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include "SPIRV/GlslangToSpv.h"
 
 #include <iostream>
 #include <vector>
@@ -50,6 +49,62 @@
 #define WIDTH 1280
 #define HEIGHT 720
 #define NUM_SAMPLES vk::SampleCountFlagBits::e1
+#define XYZ1(_x_, _y_, _z_) (_x_), (_y_), (_z_), 1.f
+
+struct Vertex {
+	float posX, posY, posZ, posW;  // Position data
+	float r, g, b, a;              // Color
+};
+
+struct VertexUV {
+	float posX, posY, posZ, posW;  // Position data
+	float u, v;                    // texture u,v
+};
+
+static const Vertex g_vb_solid_face_colors_Data[] = {
+	// red face
+	{ XYZ1(-1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
+	{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
+	{ XYZ1(1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
+	{ XYZ1(1, -1, 1), XYZ1(1.f, 0.f, 0.f) },
+	{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
+	{ XYZ1(1, 1, 1), XYZ1(1.f, 0.f, 0.f) },
+	// green face
+	{ XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
+	{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
+	{ XYZ1(-1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
+	{ XYZ1(-1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
+	{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 0.f) },
+	{ XYZ1(1, 1, -1), XYZ1(0.f, 1.f, 0.f) },
+	// blue face
+	{ XYZ1(-1, 1, 1), XYZ1(0.f, 0.f, 1.f) },
+	{ XYZ1(-1, -1, 1), XYZ1(0.f, 0.f, 1.f) },
+	{ XYZ1(-1, 1, -1), XYZ1(0.f, 0.f, 1.f) },
+	{ XYZ1(-1, 1, -1), XYZ1(0.f, 0.f, 1.f) },
+	{ XYZ1(-1, -1, 1), XYZ1(0.f, 0.f, 1.f) },
+	{ XYZ1(-1, -1, -1), XYZ1(0.f, 0.f, 1.f) },
+	// yellow face
+	{ XYZ1(1, 1, 1), XYZ1(1.f, 1.f, 0.f) },
+	{ XYZ1(1, 1, -1), XYZ1(1.f, 1.f, 0.f) },
+	{ XYZ1(1, -1, 1), XYZ1(1.f, 1.f, 0.f) },
+	{ XYZ1(1, -1, 1), XYZ1(1.f, 1.f, 0.f) },
+	{ XYZ1(1, 1, -1), XYZ1(1.f, 1.f, 0.f) },
+	{ XYZ1(1, -1, -1), XYZ1(1.f, 1.f, 0.f) },
+	// magenta face
+	{ XYZ1(1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
+	{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
+	{ XYZ1(1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
+	{ XYZ1(1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
+	{ XYZ1(-1, 1, 1), XYZ1(1.f, 0.f, 1.f) },
+	{ XYZ1(-1, 1, -1), XYZ1(1.f, 0.f, 1.f) },
+	// cyan face
+	{ XYZ1(1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
+	{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
+	{ XYZ1(-1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
+	{ XYZ1(-1, -1, 1), XYZ1(0.f, 1.f, 1.f) },
+	{ XYZ1(1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
+	{ XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
+};
 
 static std::vector<uint32_t> readFile(const std::string& filename) {
 	std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -492,6 +547,214 @@ int main()
 	shaderStages[1].setModule(device.createShaderModule(moduleInfo));
 
 	//12. Init Frame Buffers
+	vk::ImageView fb_attachments[2];
+	fb_attachments[1] = depthImageView;
+
+	vk::FramebufferCreateInfo framebufferInfo = vk::FramebufferCreateInfo()
+		.setRenderPass(renderPass)
+		.setAttachmentCount(2)
+		.setPAttachments(fb_attachments)
+		.setWidth(WIDTH)
+		.setHeight(HEIGHT)
+		.setLayers(1);
+
+	std::vector<vk::Framebuffer> framebuffers(swapchainImages.size());
+	for (uint32_t i = 0; i < swapchainImages.size(); i++) {
+		fb_attachments[0] = bufferImageViews[i];
+		framebuffers[i] = device.createFramebuffer(framebufferInfo);
+	}
+
+	commandBuffers[0].end();
+
+	commandBuffers[0] = vk::CommandBuffer();
+	vk::FenceCreateInfo fenceInfo = vk::FenceCreateInfo();
+	vk::Fence drawFence = device.createFence(fenceInfo);
+
+	vk::PipelineStageFlags pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+	std::vector<vk::SubmitInfo> submitInfo(1);
+	submitInfo[0] = vk::SubmitInfo()
+		.setPWaitDstStageMask(&pipeStageFlags)
+		.setCommandBufferCount(1)
+		.setPCommandBuffers(commandBuffers.data());
+
+	vk::Queue graphicsQueue = device.getQueue(graphicsQueueFamilyIndex, 0);
+	graphicsQueue.submit(submitInfo, drawFence);
+	vk::Result res = vk::Result::eSuccess;
+	do {
+		 res = device.waitForFences(drawFence, 1, 100000000);
+	} while (res == vk::Result::eTimeout);
+
+	device.destroyFence(drawFence);
+
+	// 13. Init Vertex Buffer
+	vk::BufferCreateInfo vBufferInfo = vk::BufferCreateInfo()
+		.setUsage(vk::BufferUsageFlagBits::eVertexBuffer)
+		.setSize(sizeof(g_vb_solid_face_colors_Data))
+		.setSharingMode(vk::SharingMode::eExclusive);
+
+	vk::Buffer vertexBuffer = device.createBuffer(vBufferInfo);
+	memReqs = device.getBufferMemoryRequirements(vertexBuffer);
+	vk::MemoryAllocateInfo memAlloc3 = vk::MemoryAllocateInfo()
+		.setAllocationSize(memReqs.size);
+
+	typeBits = memReqs.memoryTypeBits;
+	for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
+		if (typeBits & 1 == 1) {
+			if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) {
+				memAlloc2.setMemoryTypeIndex(i);
+				break;
+			}
+		}
+		typeBits >>= 1;
+	}
+
+	bufferMem = device.allocateMemory(memAlloc3);
+
+	memPtr = device.mapMemory(bufferMem, 0, memReqs.size);
+	memcpy(memPtr, &g_vb_solid_face_colors_Data, sizeof(g_vb_solid_face_colors_Data));
+	device.unmapMemory(bufferMem);
+
+	device.bindBufferMemory(vertexBuffer, bufferMem, 0);
+
+	vk::VertexInputBindingDescription viBinding = vk::VertexInputBindingDescription()
+		.setBinding(0)
+		.setInputRate(vk::VertexInputRate::eVertex)
+		.setStride(sizeof(g_vb_solid_face_colors_Data[0]));
+
+	vk::VertexInputAttributeDescription viAttributes[2];
+	viAttributes[0] = vk::VertexInputAttributeDescription()
+		.setFormat(vk::Format::eR32G32B32A32Sfloat);
+	viAttributes[0] = vk::VertexInputAttributeDescription()
+		.setFormat(vk::Format::eR32G32B32A32Sfloat)
+		.setLocation(1)
+		.setOffset(16);
+
+	vk::ClearValue clearValues[2];
+	std::array<float, 4> colorVal = { 0.2f, 0.2f, 0.2f, 0.2f };
+	clearValues[0] = vk::ClearValue()
+		.setColor(vk::ClearColorValue(colorVal));
+	clearValues[1] = vk::ClearValue()
+		.setDepthStencil(vk::ClearDepthStencilValue(1.0f, 0));
+
+	currentBuffer = device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, {}).value;
+
+	vk::RenderPassBeginInfo rp_begin = vk::RenderPassBeginInfo()
+		.setRenderPass(renderPass)
+		.setFramebuffer(framebuffers[currentBuffer])
+		.setRenderArea(vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(WIDTH, HEIGHT)))
+		.setClearValueCount(2)
+		.setPClearValues(clearValues);
+
+	const vk::DeviceSize offsets[1] = { 0 };
+	commandBuffers[0].beginRenderPass(rp_begin, vk::SubpassContents::eInline);
+	commandBuffers[0].bindVertexBuffers(0, 1, &vertexBuffer, offsets);
+
+	commandBuffers[0].endRenderPass();
+
+	commandBuffers[0].end();
+
+	commandBuffers[0] = vk::CommandBuffer();
+	fenceInfo = vk::FenceCreateInfo();
+	drawFence = device.createFence(fenceInfo);
+
+	pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+	submitInfo[0] = vk::SubmitInfo()
+		.setPWaitDstStageMask(&pipeStageFlags)
+		.setCommandBufferCount(1)
+		.setPCommandBuffers(commandBuffers.data());
+
+	graphicsQueue = device.getQueue(graphicsQueueFamilyIndex, 0);
+	graphicsQueue.submit(submitInfo, drawFence);
+	res = vk::Result::eSuccess;
+	do {
+		res = device.waitForFences(drawFence, 1, 100000000);
+	} while (res == vk::Result::eTimeout);
+
+	device.destroyFence(drawFence);
+
+	// 14. Init Pipeline
+	vk::DynamicState dynamicStateEnables[VK_DYNAMIC_STATE_RANGE_SIZE];
+	memset(dynamicStateEnables, 0, sizeof dynamicStateEnables);
+	vk::PipelineDynamicStateCreateInfo dynamicState = vk::PipelineDynamicStateCreateInfo()
+		.setPDynamicStates(dynamicStateEnables);
+
+	vk::PipelineVertexInputStateCreateInfo vi = vk::PipelineVertexInputStateCreateInfo()
+		.setVertexBindingDescriptionCount(1)
+		.setPVertexBindingDescriptions(&viBinding)
+		.setVertexAttributeDescriptionCount(2)
+		.setPVertexAttributeDescriptions(viAttributes);
+
+	vk::PipelineInputAssemblyStateCreateInfo ia = vk::PipelineInputAssemblyStateCreateInfo()
+		.setTopology(vk::PrimitiveTopology::eTriangleList);
+
+	vk::PipelineRasterizationStateCreateInfo rs = vk::PipelineRasterizationStateCreateInfo()
+		.setCullMode(vk::CullModeFlagBits::eBack)
+		.setFrontFace(vk::FrontFace::eClockwise)
+		.setLineWidth(1);
+
+	vk::PipelineColorBlendAttachmentState attState = vk::PipelineColorBlendAttachmentState();
+	vk::PipelineColorBlendStateCreateInfo cb = vk::PipelineColorBlendStateCreateInfo()
+		.setAttachmentCount(1)
+		.setPAttachments(&attState)
+		.setLogicOp(vk::LogicOp::eNoOp)
+		.setBlendConstants({ {1, 1, 1, 1} });
+
+	vk::PipelineViewportStateCreateInfo vp = vk::PipelineViewportStateCreateInfo()
+		.setViewportCount(1)
+		.setScissorCount(1);
+	dynamicStateEnables[dynamicState.dynamicStateCount++] = vk::DynamicState::eViewport;
+	dynamicStateEnables[dynamicState.dynamicStateCount++] = vk::DynamicState::eScissor;
+	
+	vk::StencilOpState back = vk::StencilOpState()
+		.setCompareOp(vk::CompareOp::eAlways);
+	vk::PipelineDepthStencilStateCreateInfo ds = vk::PipelineDepthStencilStateCreateInfo()
+		.setDepthTestEnable(true)
+		.setDepthWriteEnable(true)
+		.setDepthCompareOp(vk::CompareOp::eLessOrEqual)
+		.setBack(back)
+		.setFront(back);
+
+	vk::PipelineMultisampleStateCreateInfo ms = vk::PipelineMultisampleStateCreateInfo();
+	
+	vk::GraphicsPipelineCreateInfo pipelineInfo = vk::GraphicsPipelineCreateInfo()
+		.setLayout(pipelineLayout)
+		.setPVertexInputState(&vi)
+		.setPInputAssemblyState(&ia)
+		.setPRasterizationState(&rs)
+		.setPColorBlendState(&cb)
+		.setPMultisampleState(&ms)
+		.setPDynamicState(&dynamicState)
+		.setPViewportState(&vp)
+		.setPDepthStencilState(&ds)
+		.setPStages(shaderStages)
+		.setStageCount(2)
+		.setRenderPass(renderPass)
+		.setSubpass(0);
+
+	vk::Pipeline pipeline = device.createGraphicsPipeline(nullptr, pipelineInfo);
+
+	commandBuffers[0].end();
+
+	commandBuffers[0] = vk::CommandBuffer();
+	fenceInfo = vk::FenceCreateInfo();
+	drawFence = device.createFence(fenceInfo);
+
+	pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+	submitInfo[0] = vk::SubmitInfo()
+		.setPWaitDstStageMask(&pipeStageFlags)
+		.setCommandBufferCount(1)
+		.setPCommandBuffers(commandBuffers.data());
+
+	graphicsQueue = device.getQueue(graphicsQueueFamilyIndex, 0);
+	graphicsQueue.submit(submitInfo, drawFence);
+	res = vk::Result::eSuccess;
+	do {
+		res = device.waitForFences(drawFence, 1, 100000000);
+	} while (res == vk::Result::eTimeout);
+
+	device.destroyFence(drawFence);
+
+
 
 	// This is where most initializtion for a program should be performed
 
@@ -518,6 +781,8 @@ int main()
 	}
 
 	//Clean
+	device.destroyPipeline(pipeline);
+	device.destroyBuffer(vertexBuffer);
 	device.destroyShaderModule(shaderStages[0].module);
 	device.destroyShaderModule(shaderStages[1].module);
 	device.destroyRenderPass(renderPass);
