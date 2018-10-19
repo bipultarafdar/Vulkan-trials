@@ -208,27 +208,6 @@ int main()
 	}
 	assert(found);
 
-	const char * deviceExtensions[1] = { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
-	vk::DeviceCreateInfo deviceInfo = vk::DeviceCreateInfo()
-		.setQueueCreateInfoCount(1)
-		.setPQueueCreateInfos(&queueInfo)
-		.setEnabledExtensionCount(1)
-		.setPpEnabledExtensionNames(deviceExtensions);
-
-	vk::Device device = physicalDevice.createDevice(deviceInfo);
-
-	// 4. Init Command Buffer
-	vk::CommandPoolCreateInfo commandPoolInfo = vk::CommandPoolCreateInfo()
-		.setQueueFamilyIndex(queueInfo.queueFamilyIndex);
-	vk::CommandPool commandPool = device.createCommandPool(commandPoolInfo);
-
-	vk::CommandBufferAllocateInfo cmd = vk::CommandBufferAllocateInfo()
-		.setCommandBufferCount(1)
-		.setCommandPool(commandPool);
-
-	std::vector<vk::CommandBuffer> commandBuffers = device.allocateCommandBuffers(cmd);
-
-
 	// Create a Vulkan surface for rendering
 	VkSurfaceKHR c_surface;
 	if (!SDL_Vulkan_CreateSurface(window, static_cast<VkInstance>(instance), &c_surface)) {
@@ -269,6 +248,39 @@ int main()
 	}
 	surfaceFormats.clear();
 
+	std::vector<vk::ExtensionProperties> deviceExtensions = physicalDevice.enumerateDeviceExtensionProperties();
+	std::vector<char*> dvcExtNames;
+	for (auto d : deviceExtensions) {
+		dvcExtNames.push_back(d.extensionName);
+	}
+
+	vk::DeviceCreateInfo deviceInfo = vk::DeviceCreateInfo()
+		.setQueueCreateInfoCount(1)
+		.setPQueueCreateInfos(&queueInfo)
+		.setEnabledExtensionCount(deviceExtensions.size())
+		.setPpEnabledExtensionNames(dvcExtNames.data());
+
+	vk::Device device = physicalDevice.createDevice(deviceInfo);
+
+	// 4. Init Command Buffer
+	vk::CommandPoolCreateInfo commandPoolInfo = vk::CommandPoolCreateInfo()
+		.setQueueFamilyIndex(queueInfo.queueFamilyIndex);
+	vk::CommandPool commandPool = device.createCommandPool(commandPoolInfo);
+
+	vk::CommandBufferAllocateInfo cmd = vk::CommandBufferAllocateInfo()
+		.setCommandBufferCount(1)
+		.setCommandPool(commandPool);
+
+	vk::CommandBuffer commandBuffer = device.allocateCommandBuffers(cmd)[0];
+
+	vk::CommandBufferBeginInfo cmdBeginInfo = vk::CommandBufferBeginInfo();
+	commandBuffer.begin(cmdBeginInfo);
+
+	vk::Queue graphicsQueue = device.getQueue(graphicsQueueFamilyIndex, 0);
+	vk::Queue presentQueue = graphicsQueue;
+
+
+	//5. Init Swap Chain
 	vk::SurfaceCapabilitiesKHR surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
 	std::vector<vk::PresentModeKHR> presentModes = physicalDevice.getSurfacePresentModesKHR(surface);
 	//vk::Extent2D swapchainExtent(surfaceCapabilities.currentExtent);
@@ -330,6 +342,8 @@ int main()
 		bufferImageViews[i] = device.createImageView(colorImageView);
 	}
 
+	uint32_t currentBuffer = 0;
+
 	// 6. Init Depth Buffer
 	vk::Format depthFormat = vk::Format::eD16Unorm;
 	vk::ImageCreateInfo imageInfo = vk::ImageCreateInfo()
@@ -343,11 +357,11 @@ int main()
 		.setUsage(vk::ImageUsageFlagBits::eDepthStencilAttachment)
 		.setSharingMode(vk::SharingMode::eExclusive);
 	//.setFlags(vk::ImageCreateFlags());
-	vk::FormatProperties props = physicalDevice.getFormatProperties(depthFormat);
-	if (props.linearTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
+	vk::FormatProperties formatProps = physicalDevice.getFormatProperties(depthFormat);
+	if (formatProps.linearTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
 		imageInfo.setTiling(vk::ImageTiling::eLinear);
 	}
-	else if (props.optimalTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
+	else if (formatProps.optimalTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) {
 		imageInfo.setTiling(vk::ImageTiling::eOptimal);
 	}
 	else {
@@ -455,35 +469,7 @@ int main()
 
 	vk::PipelineLayout pipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
 
-	// 9. Init Descriptor Set
-	vk::DescriptorPoolSize typeCount[1] = { vk::DescriptorPoolSize()
-		.setType(vk::DescriptorType::eUniformBuffer)
-		.setDescriptorCount(1) };
-	vk::DescriptorPoolCreateInfo desciptorPoolInfo = vk::DescriptorPoolCreateInfo()
-		.setMaxSets(1)
-		.setPoolSizeCount(1)
-		.setPPoolSizes(typeCount);
-
-	vk::DescriptorPool descriptorPool = device.createDescriptorPool(desciptorPoolInfo);
-
-	vk::DescriptorSetAllocateInfo allocInfo = vk::DescriptorSetAllocateInfo()
-		.setDescriptorPool(descriptorPool)
-		.setDescriptorSetCount(1)
-		.setPSetLayouts(&descriptorLayout);
-
-	std::vector<vk::DescriptorSet> descriptorSets = device.allocateDescriptorSets(allocInfo);
-
-	std::vector<vk::WriteDescriptorSet> writes(1);
-	writes[0] = vk::WriteDescriptorSet()
-		.setDstSet(descriptorSets[0])
-		.setDescriptorCount(1)
-		.setDescriptorType(vk::DescriptorType::eUniformBuffer)
-		.setPBufferInfo(&bufferInfo);
-
-	device.updateDescriptorSets(writes, NULL);
-
 	// 10. Init Render Pass
-	uint32_t currentBuffer = 0;
 	vk::SemaphoreCreateInfo imageSemaphoreInfo = vk::SemaphoreCreateInfo();
 	vk::Semaphore imageAcquiredSemaphore = device.createSemaphore(imageSemaphoreInfo);
 	device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, nullptr, &currentBuffer);
@@ -564,28 +550,6 @@ int main()
 		framebuffers[i] = device.createFramebuffer(framebufferInfo);
 	}
 
-	commandBuffers[0].end();
-
-	commandBuffers[0] = vk::CommandBuffer();
-	vk::FenceCreateInfo fenceInfo = vk::FenceCreateInfo();
-	vk::Fence drawFence = device.createFence(fenceInfo);
-
-	vk::PipelineStageFlags pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-	std::vector<vk::SubmitInfo> submitInfo(1);
-	submitInfo[0] = vk::SubmitInfo()
-		.setPWaitDstStageMask(&pipeStageFlags)
-		.setCommandBufferCount(1)
-		.setPCommandBuffers(commandBuffers.data());
-
-	vk::Queue graphicsQueue = device.getQueue(graphicsQueueFamilyIndex, 0);
-	graphicsQueue.submit(submitInfo, drawFence);
-	vk::Result res = vk::Result::eSuccess;
-	do {
-		 res = device.waitForFences(drawFence, 1, 100000000);
-	} while (res == vk::Result::eTimeout);
-
-	device.destroyFence(drawFence);
-
 	// 13. Init Vertex Buffer
 	vk::BufferCreateInfo vBufferInfo = vk::BufferCreateInfo()
 		.setUsage(vk::BufferUsageFlagBits::eVertexBuffer)
@@ -629,48 +593,37 @@ int main()
 		.setLocation(1)
 		.setOffset(16);
 
-	vk::ClearValue clearValues[2];
-	std::array<float, 4> colorVal = { 0.2f, 0.2f, 0.2f, 0.2f };
-	clearValues[0] = vk::ClearValue()
-		.setColor(vk::ClearColorValue(colorVal));
-	clearValues[1] = vk::ClearValue()
-		.setDepthStencil(vk::ClearDepthStencilValue(1.0f, 0));
 
-	currentBuffer = device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, {}).value;
+	// 9. Init Descriptor Set
+	vk::DescriptorPoolSize typeCount[1] = { vk::DescriptorPoolSize()
+		.setType(vk::DescriptorType::eUniformBuffer)
+		.setDescriptorCount(1) };
+	vk::DescriptorPoolCreateInfo desciptorPoolInfo = vk::DescriptorPoolCreateInfo()
+		.setMaxSets(1)
+		.setPoolSizeCount(1)
+		.setPPoolSizes(typeCount);
 
-	vk::RenderPassBeginInfo rp_begin = vk::RenderPassBeginInfo()
-		.setRenderPass(renderPass)
-		.setFramebuffer(framebuffers[currentBuffer])
-		.setRenderArea(vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(WIDTH, HEIGHT)))
-		.setClearValueCount(2)
-		.setPClearValues(clearValues);
+	vk::DescriptorPool descriptorPool = device.createDescriptorPool(desciptorPoolInfo);
 
-	const vk::DeviceSize offsets[1] = { 0 };
-	commandBuffers[0].beginRenderPass(rp_begin, vk::SubpassContents::eInline);
-	commandBuffers[0].bindVertexBuffers(0, 1, &vertexBuffer, offsets);
+	vk::DescriptorSetAllocateInfo allocInfo = vk::DescriptorSetAllocateInfo()
+		.setDescriptorPool(descriptorPool)
+		.setDescriptorSetCount(1)
+		.setPSetLayouts(&descriptorLayout);
 
-	commandBuffers[0].endRenderPass();
+	std::vector<vk::DescriptorSet> descriptorSets = device.allocateDescriptorSets(allocInfo);
 
-	commandBuffers[0].end();
+	std::vector<vk::WriteDescriptorSet> writes(1);
+	writes[0] = vk::WriteDescriptorSet()
+		.setDstSet(descriptorSets[0])
+		.setDescriptorCount(1)
+		.setDescriptorType(vk::DescriptorType::eUniformBuffer)
+		.setPBufferInfo(&bufferInfo);
 
-	commandBuffers[0] = vk::CommandBuffer();
-	fenceInfo = vk::FenceCreateInfo();
-	drawFence = device.createFence(fenceInfo);
+	device.updateDescriptorSets(writes, NULL);
 
-	pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-	submitInfo[0] = vk::SubmitInfo()
-		.setPWaitDstStageMask(&pipeStageFlags)
-		.setCommandBufferCount(1)
-		.setPCommandBuffers(commandBuffers.data());
-
-	graphicsQueue = device.getQueue(graphicsQueueFamilyIndex, 0);
-	graphicsQueue.submit(submitInfo, drawFence);
-	res = vk::Result::eSuccess;
-	do {
-		res = device.waitForFences(drawFence, 1, 100000000);
-	} while (res == vk::Result::eTimeout);
-
-	device.destroyFence(drawFence);
+	// Init Pipeline Cache
+	vk::PipelineCacheCreateInfo pipelineCacheInfo = vk::PipelineCacheCreateInfo();
+	vk::PipelineCache pipelineCache = device.createPipelineCache(pipelineCacheInfo);
 
 	// 14. Init Pipeline
 	vk::DynamicState dynamicStateEnables[VK_DYNAMIC_STATE_RANGE_SIZE];
@@ -731,29 +684,66 @@ int main()
 		.setRenderPass(renderPass)
 		.setSubpass(0);
 
-	vk::Pipeline pipeline = device.createGraphicsPipeline(nullptr, pipelineInfo);
+	vk::Pipeline pipeline = device.createGraphicsPipeline(pipelineCache, pipelineInfo);
 
-	commandBuffers[0].end();
+	vk::ClearValue clearValues[2];
+	std::array<float, 4> colorVal = { 0.2f, 0.2f, 0.2f, 0.2f };
+	clearValues[0] = vk::ClearValue()
+		.setColor(vk::ClearColorValue(colorVal));
+	clearValues[1] = vk::ClearValue()
+		.setDepthStencil(vk::ClearDepthStencilValue(1.0f, 0));
 
-	commandBuffers[0] = vk::CommandBuffer();
-	fenceInfo = vk::FenceCreateInfo();
-	drawFence = device.createFence(fenceInfo);
+	//currentBuffer = device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, {}).value;
+	device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, nullptr, &currentBuffer);
 
-	pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+	vk::RenderPassBeginInfo rp_begin = vk::RenderPassBeginInfo()
+		.setRenderPass(renderPass)
+		.setFramebuffer(framebuffers[currentBuffer])
+		.setRenderArea(vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(WIDTH, HEIGHT)))
+		.setClearValueCount(2)
+		.setPClearValues(clearValues);
+
+	commandBuffer.beginRenderPass(rp_begin, vk::SubpassContents::eInline);
+	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+	commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, 1, descriptorSets.data(), 0, NULL);
+
+	const vk::DeviceSize offsets[1] = { 0 };
+	commandBuffer.bindVertexBuffers(0, 1, &vertexBuffer, offsets);
+
+	//Init Viewports
+	vk::Viewport viewport = vk::Viewport(0, 0, WIDTH, HEIGHT, 0, 1);
+	commandBuffer.setViewport(0, viewport);
+
+	//Init Scissors
+	vk::Rect2D scissor = vk::Rect2D(vk::Offset2D(), vk::Extent2D(WIDTH, HEIGHT));
+
+	//L:149
+
+	commandBuffer.draw(12 * 3, 1, 0, 0);
+	commandBuffer.endRenderPass();
+	commandBuffer.end();
+
+	vk::FenceCreateInfo fenceInfo = vk::FenceCreateInfo();
+	vk::Fence drawFence = device.createFence(fenceInfo);
+
+	vk::PipelineStageFlags pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+	std::vector<vk::SubmitInfo> submitInfo(1);
 	submitInfo[0] = vk::SubmitInfo()
 		.setPWaitDstStageMask(&pipeStageFlags)
 		.setCommandBufferCount(1)
-		.setPCommandBuffers(commandBuffers.data());
+		.setPCommandBuffers(&commandBuffer);
 
-	graphicsQueue = device.getQueue(graphicsQueueFamilyIndex, 0);
-	graphicsQueue.submit(submitInfo, drawFence);
-	res = vk::Result::eSuccess;
+	vk::PresentInfoKHR present = vk::PresentInfoKHR()
+		.setSwapchainCount(1)
+		.setPSwapchains(&swapchain)
+		.setPImageIndices(&currentBuffer);
+
+	vk::Result res = vk::Result::eSuccess;
 	do {
-		res = device.waitForFences(drawFence, 1, 100000000);
+		res = device.waitForFences(1, &drawFence, true, 10000000);
 	} while (res == vk::Result::eTimeout);
 
-	device.destroyFence(drawFence);
-
+	presentQueue.presentKHR(present);
 
 
 	// This is where most initializtion for a program should be performed
@@ -798,7 +788,7 @@ int main()
 		device.destroyImageView(bufferImageViews[i]);
 	}
 	device.destroySwapchainKHR(swapchain);
-	device.freeCommandBuffers(commandPool, commandBuffers);
+	device.freeCommandBuffers(commandPool, commandBuffer);
 	device.destroyCommandPool(commandPool);
 	device.destroy();
 
