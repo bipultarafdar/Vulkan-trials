@@ -253,11 +253,12 @@ int main()
 	for (auto d : deviceExtensions) {
 		dvcExtNames.push_back(d.extensionName);
 	}
+	dvcExtNames.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 
 	vk::DeviceCreateInfo deviceInfo = vk::DeviceCreateInfo()
 		.setQueueCreateInfoCount(1)
 		.setPQueueCreateInfos(&queueInfo)
-		.setEnabledExtensionCount(deviceExtensions.size())
+		.setEnabledExtensionCount(dvcExtNames.size())
 		.setPpEnabledExtensionNames(dvcExtNames.data());
 
 	vk::Device device = physicalDevice.createDevice(deviceInfo);
@@ -565,7 +566,7 @@ int main()
 	for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
 		if (typeBits & 1 == 1) {
 			if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) {
-				memAlloc2.setMemoryTypeIndex(i);
+				memAlloc3.setMemoryTypeIndex(i);
 				break;
 			}
 		}
