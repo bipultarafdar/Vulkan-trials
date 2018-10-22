@@ -458,6 +458,7 @@ int main()
 
 	// 8. Init Pipeline Layout
 	vk::DescriptorSetLayoutBinding layoutBinding = vk::DescriptorSetLayoutBinding()
+		.setDescriptorType(vk::DescriptorType::eUniformBuffer)
 		.setDescriptorCount(1)
 		.setStageFlags(vk::ShaderStageFlagBits::eVertex);
 	vk::DescriptorSetLayoutCreateInfo descriptorLayoutInfo = vk::DescriptorSetLayoutCreateInfo()
@@ -473,7 +474,7 @@ int main()
 	// 10. Init Render Pass
 	vk::SemaphoreCreateInfo imageSemaphoreInfo = vk::SemaphoreCreateInfo();
 	vk::Semaphore imageAcquiredSemaphore = device.createSemaphore(imageSemaphoreInfo);
-	device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, nullptr, &currentBuffer);
+	//device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, nullptr, &currentBuffer);
 
 	vk::AttachmentDescription attachments[2];
 	attachments[0] = vk::AttachmentDescription()
@@ -589,7 +590,7 @@ int main()
 	vk::VertexInputAttributeDescription viAttributes[2];
 	viAttributes[0] = vk::VertexInputAttributeDescription()
 		.setFormat(vk::Format::eR32G32B32A32Sfloat);
-	viAttributes[0] = vk::VertexInputAttributeDescription()
+	viAttributes[1] = vk::VertexInputAttributeDescription()
 		.setFormat(vk::Format::eR32G32B32A32Sfloat)
 		.setLocation(1)
 		.setOffset(16);
@@ -602,7 +603,7 @@ int main()
 	vk::DescriptorSetAllocateInfo allocInfo = vk::DescriptorSetAllocateInfo(descriptorPool, 1, &descriptorLayout);
 	std::vector<vk::DescriptorSet> descriptorSets = device.allocateDescriptorSets(allocInfo);
 	std::vector<vk::WriteDescriptorSet> writes(1);
-	writes[0] = vk::WriteDescriptorSet(descriptorSets[0], 0, 0, 0, vk::DescriptorType::eUniformBuffer);
+	writes[0] = vk::WriteDescriptorSet(descriptorSets[0], 0, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &bufferInfo, nullptr);
 
 	device.updateDescriptorSets(writes, NULL);
 
@@ -701,6 +702,7 @@ int main()
 
 	//Init Scissors
 	vk::Rect2D scissor = vk::Rect2D(vk::Offset2D(), vk::Extent2D(WIDTH, HEIGHT));
+	commandBuffer.setScissor(0, scissor);
 
 	//L:149
 
@@ -716,7 +718,10 @@ int main()
 	submitInfo[0] = vk::SubmitInfo()
 		.setPWaitDstStageMask(&pipeStageFlags)
 		.setCommandBufferCount(1)
+		.setCommandBufferCount(1)
 		.setPCommandBuffers(&commandBuffer);
+
+	graphicsQueue.submit(submitInfo, drawFence);
 
 	vk::PresentInfoKHR present = vk::PresentInfoKHR()
 		.setSwapchainCount(1)
@@ -725,7 +730,7 @@ int main()
 
 	vk::Result res = vk::Result::eSuccess;
 	do {
-		res = device.waitForFences(1, &drawFence, true, 10000000);
+		res = device.waitForFences(1, &drawFence, true, 100000000);
 	} while (res == vk::Result::eTimeout);
 
 	presentQueue.presentKHR(present);
