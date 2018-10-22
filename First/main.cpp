@@ -106,7 +106,7 @@ static const Vertex g_vb_solid_face_colors_Data[] = {
 	{ XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
 };
 
-static std::vector<uint32_t> readFile(const std::string& filename) {
+static std::vector<char> readFile(const std::string& filename) {
 	std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
 	if (!file.is_open()) {
@@ -114,9 +114,9 @@ static std::vector<uint32_t> readFile(const std::string& filename) {
 	}
 
 	size_t fileSize = (size_t)file.tellg();
-	std::vector<uint32_t> buffer(fileSize);
+	std::vector<char> buffer(fileSize);
 	file.seekg(0);
-	file.read(reinterpret_cast<char*>(buffer.data()), fileSize);
+	file.read(buffer.data(), fileSize);
 	file.close();
 
 	return buffer;
@@ -525,12 +525,12 @@ int main()
 		.setPName("main");
 
 	vk::ShaderModuleCreateInfo moduleInfo = vk::ShaderModuleCreateInfo()
-		.setCodeSize(vertShaderCode.size() * sizeof(unsigned int))
-		.setPCode(vertShaderCode.data());
+		.setCodeSize(vertShaderCode.size())
+		.setPCode(reinterpret_cast<const uint32_t*>(vertShaderCode.data()));
 	shaderStages[0].setModule(device.createShaderModule(moduleInfo));
 
-	moduleInfo.setCodeSize(fragShaderCode.size() * sizeof(unsigned int))
-		.setPCode(fragShaderCode.data());
+	moduleInfo.setCodeSize(fragShaderCode.size())
+		.setPCode(reinterpret_cast<const uint32_t*>(fragShaderCode.data()));
 	shaderStages[1].setModule(device.createShaderModule(moduleInfo));
 
 	//12. Init Frame Buffers
@@ -596,29 +596,13 @@ int main()
 
 
 	// 9. Init Descriptor Set
-	vk::DescriptorPoolSize typeCount[1] = { vk::DescriptorPoolSize()
-		.setType(vk::DescriptorType::eUniformBuffer)
-		.setDescriptorCount(1) };
-	vk::DescriptorPoolCreateInfo desciptorPoolInfo = vk::DescriptorPoolCreateInfo()
-		.setMaxSets(1)
-		.setPoolSizeCount(1)
-		.setPPoolSizes(typeCount);
-
+	vk::DescriptorPoolSize typeCount[1] = { vk::DescriptorPoolSize(vk::DescriptorType::eUniformBuffer, 1) };
+	vk::DescriptorPoolCreateInfo desciptorPoolInfo = vk::DescriptorPoolCreateInfo({}, 1, 1, typeCount);
 	vk::DescriptorPool descriptorPool = device.createDescriptorPool(desciptorPoolInfo);
-
-	vk::DescriptorSetAllocateInfo allocInfo = vk::DescriptorSetAllocateInfo()
-		.setDescriptorPool(descriptorPool)
-		.setDescriptorSetCount(1)
-		.setPSetLayouts(&descriptorLayout);
-
+	vk::DescriptorSetAllocateInfo allocInfo = vk::DescriptorSetAllocateInfo(descriptorPool, 1, &descriptorLayout);
 	std::vector<vk::DescriptorSet> descriptorSets = device.allocateDescriptorSets(allocInfo);
-
 	std::vector<vk::WriteDescriptorSet> writes(1);
-	writes[0] = vk::WriteDescriptorSet()
-		.setDstSet(descriptorSets[0])
-		.setDescriptorCount(1)
-		.setDescriptorType(vk::DescriptorType::eUniformBuffer)
-		.setPBufferInfo(&bufferInfo);
+	writes[0] = vk::WriteDescriptorSet(descriptorSets[0], 0, 0, 0, vk::DescriptorType::eUniformBuffer);
 
 	device.updateDescriptorSets(writes, NULL);
 
