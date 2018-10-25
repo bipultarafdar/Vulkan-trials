@@ -156,22 +156,11 @@ int main()
 
 	// vk::ApplicationInfo allows the programmer to specifiy some basic information about the
 	// program, which can be useful for layers and tools to provide more debug information.
-	vk::ApplicationInfo appInfo = vk::ApplicationInfo()
-		.setPApplicationName("Vulkan C++ Windowed Program Template")
-		.setApplicationVersion(1)
-		.setPEngineName("LunarG SDK")
-		.setEngineVersion(1)
-		.setApiVersion(VK_API_VERSION_1_0);
+	vk::ApplicationInfo appInfo = vk::ApplicationInfo("Vulkan C++ Windowed Program Template", 1, "LunarG SDK", 1, VK_API_VERSION_1_0);
 
 	// vk::InstanceCreateInfo is where the programmer specifies the layers and/or extensions that
 	// are needed.
-	vk::InstanceCreateInfo instInfo = vk::InstanceCreateInfo()
-		.setFlags(vk::InstanceCreateFlags())
-		.setPApplicationInfo(&appInfo)
-		.setEnabledExtensionCount(static_cast<uint32_t>(extensions.size()))
-		.setPpEnabledExtensionNames(extensions.data())
-		.setEnabledLayerCount(static_cast<uint32_t>(layers.size()))
-		.setPpEnabledLayerNames(layers.data());
+	vk::InstanceCreateInfo instInfo = vk::InstanceCreateInfo({}, &appInfo, layers.size(), layers.data(), extensions.size(), extensions.data());
 
 	// Create the Vulkan instance.
 	vk::Instance instance;
@@ -192,21 +181,15 @@ int main()
 
 	// 3. Init the device
 	float queuePrios[1] = { 0.0 };
-	vk::DeviceQueueCreateInfo queueInfo = vk::DeviceQueueCreateInfo()
-		.setPQueuePriorities(queuePrios)
-		.setQueueCount(1);
+	vk::DeviceQueueCreateInfo queueInfo = vk::DeviceQueueCreateInfo({}, 0, 1, queuePrios);
 
 	std::vector<vk::QueueFamilyProperties> queueFamilyProperties = physicalDevice.getQueueFamilyProperties();
-	assert(queueFamilyProperties.data() != NULL && queueFamilyProperties.size() > 0);
-	bool found = false;
 	for (int i = 0; i < queueFamilyProperties.size(); i++) {
 		if (queueFamilyProperties[i].queueFlags & vk::QueueFlagBits::eGraphics) {
-			queueInfo.queueFamilyIndex = i;
-			found = true;
+			queueInfo.setQueueFamilyIndex(i);
 			break;
 		}
 	}
-	assert(found);
 
 	// Create a Vulkan surface for rendering
 	VkSurfaceKHR c_surface;
@@ -255,31 +238,18 @@ int main()
 	}
 	dvcExtNames.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 
-	vk::DeviceCreateInfo deviceInfo = vk::DeviceCreateInfo()
-		.setQueueCreateInfoCount(1)
-		.setPQueueCreateInfos(&queueInfo)
-		.setEnabledExtensionCount(dvcExtNames.size())
-		.setPpEnabledExtensionNames(dvcExtNames.data());
-
+	vk::DeviceCreateInfo deviceInfo = vk::DeviceCreateInfo({}, 1, &queueInfo, 0, nullptr, dvcExtNames.size(), dvcExtNames.data(), nullptr);
 	vk::Device device = physicalDevice.createDevice(deviceInfo);
 
 	// 4. Init Command Buffer
-	vk::CommandPoolCreateInfo commandPoolInfo = vk::CommandPoolCreateInfo()
-		.setQueueFamilyIndex(queueInfo.queueFamilyIndex);
+	vk::CommandPoolCreateInfo commandPoolInfo = vk::CommandPoolCreateInfo({}, queueInfo.queueFamilyIndex);
 	vk::CommandPool commandPool = device.createCommandPool(commandPoolInfo);
-
-	vk::CommandBufferAllocateInfo cmd = vk::CommandBufferAllocateInfo()
-		.setCommandBufferCount(1)
-		.setCommandPool(commandPool);
-
+	vk::CommandBufferAllocateInfo cmd = vk::CommandBufferAllocateInfo(commandPool, vk::CommandBufferLevel::ePrimary, 1);
 	vk::CommandBuffer commandBuffer = device.allocateCommandBuffers(cmd)[0];
-
 	vk::CommandBufferBeginInfo cmdBeginInfo = vk::CommandBufferBeginInfo();
 	commandBuffer.begin(cmdBeginInfo);
-
 	vk::Queue graphicsQueue = device.getQueue(graphicsQueueFamilyIndex, 0);
 	vk::Queue presentQueue = graphicsQueue;
-
 
 	//5. Init Swap Chain
 	vk::SurfaceCapabilitiesKHR surfaceCapabilities = physicalDevice.getSurfaceCapabilitiesKHR(surface);
@@ -302,19 +272,8 @@ int main()
 		}
 	}
 
-	vk::SwapchainCreateInfoKHR swapchainInfo = vk::SwapchainCreateInfoKHR()
-		.setSurface(surface)
-		.setMinImageCount(desiredSwapChainImages)
-		.setImageFormat(format)
-		.setImageExtent(surfaceCapabilities.currentExtent)
-		.setPreTransform(preTransform)
-		.setCompositeAlpha(compositeAlpha)
-		.setImageArrayLayers(1)
-		.setPresentMode(swapchainPresentMode)
-		.setClipped(true)
-		.setImageColorSpace(vk::ColorSpaceKHR::eSrgbNonlinear)
-		.setImageUsage(vk::ImageUsageFlagBits::eColorAttachment)
-		.setImageSharingMode(vk::SharingMode::eExclusive);
+	vk::SwapchainCreateInfoKHR swapchainInfo = vk::SwapchainCreateInfoKHR({}, surface, desiredSwapChainImages, format, vk::ColorSpaceKHR::eSrgbNonlinear, surfaceCapabilities.currentExtent, 1,
+		vk::ImageUsageFlagBits::eColorAttachment, vk::SharingMode::eExclusive, 0, nullptr, preTransform, compositeAlpha, swapchainPresentMode, 0, nullptr);
 	if (graphicsQueueFamilyIndex != presentQueueFamilyIndex) {
 		uint32_t queueFamilyIndices[2] = { (uint32_t)graphicsQueueFamilyIndex, (uint32_t)presentQueueFamilyIndex };
 		swapchainInfo.setImageSharingMode(vk::SharingMode::eConcurrent)
@@ -324,23 +283,20 @@ int main()
 
 	vk::SwapchainKHR swapchain = device.createSwapchainKHR(swapchainInfo);
 	std::vector<vk::Image> swapchainImages = device.getSwapchainImagesKHR(swapchain);
-	std::vector<vk::ImageView> bufferImageViews(swapchainImages.size());
+	std::vector<vk::ImageView> scImageViews(swapchainImages.size());
 
-	vk::ImageSubresourceRange subresourceRange = vk::ImageSubresourceRange()
-		.setAspectMask(vk::ImageAspectFlagBits::eColor)
-		.setLevelCount(1)
-		.setLayerCount(1);
+	vk::ImageSubresourceRange subresourceRange = vk::ImageSubresourceRange(vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1);
 
 	for (int i = 0; i < swapchainImages.size(); i++) {
 		vk::ImageViewCreateInfo colorImageView = vk::ImageViewCreateInfo()
-			.setFlags((vk::ImageViewCreateFlagBits)0)
+			.setFlags({})
 			.setImage(swapchainImages[i])
 			.setViewType(vk::ImageViewType::e2D)
 			.setFormat(format)
 			.setComponents(vk::ComponentMapping(vk::ComponentSwizzle::eR, vk::ComponentSwizzle::eG, vk::ComponentSwizzle::eB, vk::ComponentSwizzle::eA))
 			.setSubresourceRange(subresourceRange);
 
-		bufferImageViews[i] = device.createImageView(colorImageView);
+		scImageViews[i] = device.createImageView(colorImageView);
 	}
 
 	uint32_t currentBuffer = 0;
@@ -472,9 +428,6 @@ int main()
 	vk::PipelineLayout pipelineLayout = device.createPipelineLayout(pipelineLayoutInfo);
 
 	// 10. Init Render Pass
-	vk::SemaphoreCreateInfo imageSemaphoreInfo = vk::SemaphoreCreateInfo();
-	vk::Semaphore imageAcquiredSemaphore = device.createSemaphore(imageSemaphoreInfo);
-	//device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, nullptr, &currentBuffer);
 
 	vk::AttachmentDescription attachments[2];
 	attachments[0] = vk::AttachmentDescription()
@@ -546,10 +499,10 @@ int main()
 		.setHeight(HEIGHT)
 		.setLayers(1);
 
-	std::vector<vk::Framebuffer> framebuffers(swapchainImages.size());
+	std::vector<vk::Framebuffer> framebuffers;
 	for (uint32_t i = 0; i < swapchainImages.size(); i++) {
-		fb_attachments[0] = bufferImageViews[i];
-		framebuffers[i] = device.createFramebuffer(framebufferInfo);
+		fb_attachments[0] = scImageViews[i];
+		framebuffers.push_back(device.createFramebuffer(framebufferInfo));
 	}
 
 	// 13. Init Vertex Buffer
@@ -673,13 +626,17 @@ int main()
 	vk::Pipeline pipeline = device.createGraphicsPipeline(pipelineCache, pipelineInfo);
 
 	vk::ClearValue clearValues[2];
-	std::array<float, 4> colorVal = { 0.2f, 0.2f, 0.2f, 0.2f };
+	std::array<float, 4> colorVal = { 1.0f, 1.0f, 0.0f, 1.0f };
 	clearValues[0] = vk::ClearValue()
 		.setColor(vk::ClearColorValue(colorVal));
 	clearValues[1] = vk::ClearValue()
 		.setDepthStencil(vk::ClearDepthStencilValue(1.0f, 0));
 
 	//currentBuffer = device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, {}).value;
+
+	vk::SemaphoreCreateInfo imageSemaphoreInfo = vk::SemaphoreCreateInfo();
+	vk::Semaphore imageAcquiredSemaphore = device.createSemaphore(imageSemaphoreInfo);
+	vk::Semaphore imageRenderSemaphore = device.createSemaphore(imageSemaphoreInfo);
 	device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, nullptr, &currentBuffer);
 
 	vk::RenderPassBeginInfo rp_begin = vk::RenderPassBeginInfo()
@@ -775,7 +732,7 @@ int main()
 	device.destroyImage(depthImage);
 	device.freeMemory(depthMem);
 	for (int i = 0; i < swapchainImages.size(); i++) {
-		device.destroyImageView(bufferImageViews[i]);
+		device.destroyImageView(scImageViews[i]);
 	}
 	device.destroySwapchainKHR(swapchain);
 	device.freeCommandBuffers(commandPool, commandBuffer);
