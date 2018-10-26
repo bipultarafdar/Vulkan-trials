@@ -143,13 +143,13 @@ static std::vector<char> readFile(const std::string& filename) {
 }
 
 void rotateCamera(float theta, vk::Device device, vk::DeviceMemory bufferMem, vk::DeviceSize memSize) {
-	float eyeX = radius * glm::sin(glm::radians(theta));
-	float eyeY = radius * glm::cos(glm::radians(theta));
-	float eyeZ = radius * glm::cos(glm::radians(theta));
+	//float eyeX = radius * glm::sin(glm::radians(theta));
+	//float eyeY = radius * glm::cos(glm::radians(theta));
+	//float eyeZ = radius * glm::cos(glm::radians(theta));
 	//SDL_LogMessage(SDL_LOG_CATEGORY_TEST, SDL_LOG_PRIORITY_INFO, "Eye.x is %f and Eye.y is %f", eyeX, eyeY);
 
-	view = glm::lookAt(glm::vec3(eyeX, eyeY, eyeZ), origin, head);
-	glm::mat4 mvp = clip * projection * view * model;
+	//view = glm::lookAt(glm::vec3(eyeX, eyeY, eye.z), origin, head);
+	glm::mat4 mvp = clip * projection * view * glm::rotate( model, glm::radians(theta), glm::vec3(0, 1, 0));
 
 	void * memPtr = device.mapMemory(bufferMem, 0, memSize);
 	memcpy(memPtr, &mvp, sizeof(mvp));
