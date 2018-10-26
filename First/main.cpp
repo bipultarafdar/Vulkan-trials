@@ -233,21 +233,18 @@ int main()
 
 	std::vector<vk::ExtensionProperties> deviceExtensions = physicalDevice.enumerateDeviceExtensionProperties();
 	std::vector<char*> dvcExtNames;
-	for (auto d : deviceExtensions) {
-		dvcExtNames.push_back(d.extensionName);
-	}
 	dvcExtNames.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 
 	vk::DeviceCreateInfo deviceInfo = vk::DeviceCreateInfo({}, 1, &queueInfo, 0, nullptr, dvcExtNames.size(), dvcExtNames.data(), nullptr);
 	vk::Device device = physicalDevice.createDevice(deviceInfo);
 
 	// 4. Init Command Buffer
-	vk::CommandPoolCreateInfo commandPoolInfo = vk::CommandPoolCreateInfo({}, queueInfo.queueFamilyIndex);
+	vk::CommandPoolCreateInfo commandPoolInfo = vk::CommandPoolCreateInfo(vk::CommandPoolCreateFlagBits::eResetCommandBuffer, queueInfo.queueFamilyIndex);
 	vk::CommandPool commandPool = device.createCommandPool(commandPoolInfo);
 	vk::CommandBufferAllocateInfo cmd = vk::CommandBufferAllocateInfo(commandPool, vk::CommandBufferLevel::ePrimary, 1);
 	vk::CommandBuffer commandBuffer = device.allocateCommandBuffers(cmd)[0];
 	vk::CommandBufferBeginInfo cmdBeginInfo = vk::CommandBufferBeginInfo();
-	commandBuffer.begin(cmdBeginInfo);
+	//commandBuffer.begin(cmdBeginInfo);
 	vk::Queue graphicsQueue = device.getQueue(graphicsQueueFamilyIndex, 0);
 	vk::Queue presentQueue = graphicsQueue;
 
@@ -273,7 +270,7 @@ int main()
 	}
 
 	vk::SwapchainCreateInfoKHR swapchainInfo = vk::SwapchainCreateInfoKHR({}, surface, desiredSwapChainImages, format, vk::ColorSpaceKHR::eSrgbNonlinear, surfaceCapabilities.currentExtent, 1,
-		vk::ImageUsageFlagBits::eColorAttachment, vk::SharingMode::eExclusive, 0, nullptr, preTransform, compositeAlpha, swapchainPresentMode, 0, nullptr);
+		vk::ImageUsageFlagBits::eColorAttachment|vk::ImageUsageFlagBits::eTransferSrc, vk::SharingMode::eExclusive, 0, nullptr, preTransform, compositeAlpha, swapchainPresentMode, 0, nullptr);
 	if (graphicsQueueFamilyIndex != presentQueueFamilyIndex) {
 		uint32_t queueFamilyIndices[2] = { (uint32_t)graphicsQueueFamilyIndex, (uint32_t)presentQueueFamilyIndex };
 		swapchainInfo.setImageSharingMode(vk::SharingMode::eConcurrent)
@@ -361,10 +358,10 @@ int main()
 	vk::ImageView depthImageView = device.createImageView(viewInfo);
 
 	// 7. Create Uniform Buffer
-	glm::mat4 projection = glm::perspective(glm::radians(45.0f), 1.0f, 0.1f, 100.0f);
-	glm::mat4 view = glm::lookAt(glm::vec3(-5, 3, -10),  // Camera is at (-5,3,-10), in World Space
+	glm::mat4 projection = glm::perspective(glm::radians(45.0f), 2.0f, 0.1f, 100.0f);
+	glm::mat4 view = glm::lookAt(glm::vec3(-5, 3, -5),  // Camera is at (-5,3,-10), in World Space
 		glm::vec3(0, 0, 0),     // and looks at the origin
-		glm::vec3(0, -1, 0)     // Head is up (set to 0,-1,0 to look upside-down)
+		glm::vec3(0, 1, 0)     // Head is up (set to 0,-1,0 to look upside-down)
 	);
 	glm::mat4 model = glm::mat4(1.0f);
 
@@ -560,6 +557,8 @@ int main()
 
 	device.updateDescriptorSets(writes, NULL);
 
+	//commandBuffer.end();
+
 	// Init Pipeline Cache
 	vk::PipelineCacheCreateInfo pipelineCacheInfo = vk::PipelineCacheCreateInfo();
 	vk::PipelineCache pipelineCache = device.createPipelineCache(pipelineCacheInfo);
@@ -584,7 +583,8 @@ int main()
 		.setFrontFace(vk::FrontFace::eClockwise)
 		.setLineWidth(1);
 
-	vk::PipelineColorBlendAttachmentState attState = vk::PipelineColorBlendAttachmentState();
+	vk::PipelineColorBlendAttachmentState attState = vk::PipelineColorBlendAttachmentState()
+		.setColorWriteMask(vk::ColorComponentFlagBits::eA| vk::ColorComponentFlagBits::eR| vk::ColorComponentFlagBits::eG| vk::ColorComponentFlagBits::eB);
 	vk::PipelineColorBlendStateCreateInfo cb = vk::PipelineColorBlendStateCreateInfo()
 		.setAttachmentCount(1)
 		.setPAttachments(&attState)
@@ -625,72 +625,56 @@ int main()
 
 	vk::Pipeline pipeline = device.createGraphicsPipeline(pipelineCache, pipelineInfo);
 
+	std::vector<vk::CommandBuffer> drawCmdBuffer = device.allocateCommandBuffers(vk::CommandBufferAllocateInfo(commandPool, vk::CommandBufferLevel::ePrimary, 2));
+
+	vk::SemaphoreCreateInfo imageSemaphoreInfo = vk::SemaphoreCreateInfo();
+	vk::Semaphore imageAcquiredSemaphore = device.createSemaphore(imageSemaphoreInfo);
+	vk::Semaphore imageRenderSemaphore = device.createSemaphore(imageSemaphoreInfo);
+
+	vk::FenceCreateInfo fenceInfo = vk::FenceCreateInfo();
+	std::vector<vk::Fence> drawFence;
+
 	vk::ClearValue clearValues[2];
-	std::array<float, 4> colorVal = { 1.0f, 1.0f, 0.0f, 1.0f };
+	std::array<float, 4> colorVal = { 0.0f, 0.0f, 0.0f, 1.0f };
 	clearValues[0] = vk::ClearValue()
 		.setColor(vk::ClearColorValue(colorVal));
 	clearValues[1] = vk::ClearValue()
 		.setDepthStencil(vk::ClearDepthStencilValue(1.0f, 0));
 
-	//currentBuffer = device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, {}).value;
-
-	vk::SemaphoreCreateInfo imageSemaphoreInfo = vk::SemaphoreCreateInfo();
-	vk::Semaphore imageAcquiredSemaphore = device.createSemaphore(imageSemaphoreInfo);
-	vk::Semaphore imageRenderSemaphore = device.createSemaphore(imageSemaphoreInfo);
-	device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, nullptr, &currentBuffer);
-
 	vk::RenderPassBeginInfo rp_begin = vk::RenderPassBeginInfo()
 		.setRenderPass(renderPass)
-		.setFramebuffer(framebuffers[currentBuffer])
 		.setRenderArea(vk::Rect2D(vk::Offset2D(0, 0), vk::Extent2D(WIDTH, HEIGHT)))
 		.setClearValueCount(2)
 		.setPClearValues(clearValues);
 
-	commandBuffer.beginRenderPass(rp_begin, vk::SubpassContents::eInline);
-	commandBuffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
-	commandBuffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, 1, descriptorSets.data(), 0, NULL);
+	for (auto cmdbuff : drawCmdBuffer) {
 
-	const vk::DeviceSize offsets[1] = { 0 };
-	commandBuffer.bindVertexBuffers(0, 1, &vertexBuffer, offsets);
+		rp_begin.setFramebuffer(framebuffers[currentBuffer]);
 
-	//Init Viewports
-	vk::Viewport viewport = vk::Viewport(0, 0, WIDTH, HEIGHT, 0, 1);
-	commandBuffer.setViewport(0, viewport);
+		cmdbuff.begin(&cmdBeginInfo);
+		cmdbuff.beginRenderPass(rp_begin, vk::SubpassContents::eInline);
+		cmdbuff.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+		cmdbuff.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, 1, descriptorSets.data(), 0, NULL);
 
-	//Init Scissors
-	vk::Rect2D scissor = vk::Rect2D(vk::Offset2D(), vk::Extent2D(WIDTH, HEIGHT));
-	commandBuffer.setScissor(0, scissor);
+		const vk::DeviceSize offsets[1] = { 0 };
+		cmdbuff.bindVertexBuffers(0, 1, &vertexBuffer, offsets);
+
+		//Init Viewports
+		vk::Viewport viewport = vk::Viewport(0, 0, WIDTH, HEIGHT, 0, 1);
+		cmdbuff.setViewport(0, viewport);
+
+		//Init Scissors
+		vk::Rect2D scissor = vk::Rect2D(vk::Offset2D(), vk::Extent2D(WIDTH, HEIGHT));
+		cmdbuff.setScissor(0, scissor);
+
+		cmdbuff.draw(12 * 3, 1, 0, 0);
+		cmdbuff.endRenderPass();
+		cmdbuff.end();
+
+		drawFence.push_back(device.createFence(fenceInfo));
+	}
 
 	//L:149
-
-	commandBuffer.draw(12 * 3, 1, 0, 0);
-	commandBuffer.endRenderPass();
-	commandBuffer.end();
-
-	vk::FenceCreateInfo fenceInfo = vk::FenceCreateInfo();
-	vk::Fence drawFence = device.createFence(fenceInfo);
-
-	vk::PipelineStageFlags pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
-	std::vector<vk::SubmitInfo> submitInfo(1);
-	submitInfo[0] = vk::SubmitInfo()
-		.setPWaitDstStageMask(&pipeStageFlags)
-		.setCommandBufferCount(1)
-		.setCommandBufferCount(1)
-		.setPCommandBuffers(&commandBuffer);
-
-	graphicsQueue.submit(submitInfo, drawFence);
-
-	vk::PresentInfoKHR present = vk::PresentInfoKHR()
-		.setSwapchainCount(1)
-		.setPSwapchains(&swapchain)
-		.setPImageIndices(&currentBuffer);
-
-	vk::Result res = vk::Result::eSuccess;
-	do {
-		res = device.waitForFences(1, &drawFence, true, 100000000);
-	} while (res == vk::Result::eTimeout);
-
-	presentQueue.presentKHR(present);
 
 
 	// This is where most initializtion for a program should be performed
@@ -698,6 +682,36 @@ int main()
 	// Poll for user input.
 	bool stillRunning = true;
 	while (stillRunning) {
+
+		device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, nullptr, &currentBuffer);
+
+		vk::PipelineStageFlags pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+		std::vector<vk::SubmitInfo> submitInfo(1);
+		submitInfo[0] = vk::SubmitInfo()
+			.setPWaitDstStageMask(&pipeStageFlags)
+			.setCommandBufferCount(1)
+			.setPCommandBuffers(&drawCmdBuffer[currentBuffer])
+			.setWaitSemaphoreCount(1)
+			.setPWaitSemaphores(&imageAcquiredSemaphore)
+			.setSignalSemaphoreCount(1)
+			.setPSignalSemaphores(&imageRenderSemaphore);
+
+		vk::PresentInfoKHR present = vk::PresentInfoKHR()
+			.setSwapchainCount(1)
+			.setPSwapchains(&swapchain)
+			.setPImageIndices(&currentBuffer)
+			.setWaitSemaphoreCount(1)
+			.setPWaitSemaphores(&imageAcquiredSemaphore);
+
+		graphicsQueue.submit(submitInfo, drawFence[currentBuffer]);
+
+		vk::Result res = vk::Result::eSuccess;
+		do {
+			res = device.waitForFences(1, &drawFence[currentBuffer], true, 100000000);
+		} while (res == vk::Result::eTimeout);
+		device.resetFences(1, &drawFence[currentBuffer]);
+		
+		presentQueue.presentKHR(present);
 
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
@@ -714,7 +728,7 @@ int main()
 			}
 		}
 
-		SDL_Delay(10);
+		SDL_Delay(1);
 	}
 
 	//Clean
@@ -724,6 +738,7 @@ int main()
 	device.destroyShaderModule(shaderStages[1].module);
 	device.destroyRenderPass(renderPass);
 	device.destroySemaphore(imageAcquiredSemaphore);
+	device.destroySemaphore(imageRenderSemaphore);
 	device.destroyDescriptorPool(descriptorPool);
 	device.destroyDescriptorSetLayout(descriptorLayout);
 	device.destroyBuffer(buffer);
