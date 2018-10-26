@@ -295,9 +295,7 @@ int main()
 
 		scImageViews[i] = device.createImageView(colorImageView);
 	}
-
-	uint32_t currentBuffer = 0;
-
+	
 	// 6. Init Depth Buffer
 	vk::Format depthFormat = vk::Format::eD16Unorm;
 	vk::ImageCreateInfo imageInfo = vk::ImageCreateInfo()
@@ -379,39 +377,35 @@ int main()
 		.setSize(sizeof(mvp))
 		.setSharingMode(vk::SharingMode::eExclusive);
 
-	std::vector<vk::Buffer> buffer(swapchainImages.size());
-	std::vector<vk::DescriptorBufferInfo> bufferInfo(swapchainImages.size());
+	vk::Buffer buffer = device.createBuffer(bufferCInfo);
+	memReqs = device.getBufferMemoryRequirements(buffer);
+	vk::MemoryAllocateInfo memAlloc2 = vk::MemoryAllocateInfo()
+		.setAllocationSize(memReqs.size);
 
-	for (uint32_t i = 0; i < swapchainImages.size(); i++) {
-		buffer[i] = device.createBuffer(bufferCInfo);
-		memReqs = device.getBufferMemoryRequirements(buffer[i]);
-		vk::MemoryAllocateInfo memAlloc2 = vk::MemoryAllocateInfo()
-			.setAllocationSize(memReqs.size);
-
-		typeBits = memReqs.memoryTypeBits;
-		for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
-			if (typeBits & 1 == 1) {
-				if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) {
-					memAlloc2.setMemoryTypeIndex(i);
-					break;
-				}
+	typeBits = memReqs.memoryTypeBits;
+	for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
+		if (typeBits & 1 == 1) {
+			if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) {
+				memAlloc2.setMemoryTypeIndex(i);
+				break;
 			}
-			typeBits >>= 1;
 		}
-
-		vk::DeviceMemory bufferMem = device.allocateMemory(memAlloc2);
-
-		void * memPtr = device.mapMemory(bufferMem, 0, memReqs.size);
-		memcpy(memPtr, &mvp, sizeof(mvp));
-		device.unmapMemory(bufferMem);
-
-		device.bindBufferMemory(buffer[i], bufferMem, 0);
-
-		bufferInfo[i] = vk::DescriptorBufferInfo()
-			.setBuffer(buffer[i])
-			.setOffset(0)
-			.setRange(sizeof(mvp));
+		typeBits >>= 1;
 	}
+
+	vk::DeviceMemory bufferMem = device.allocateMemory(memAlloc2);
+
+	void * memPtr = device.mapMemory(bufferMem, 0, memReqs.size);
+	memcpy(memPtr, &mvp, sizeof(mvp));
+	device.unmapMemory(bufferMem);
+
+	device.bindBufferMemory(buffer, bufferMem, 0);
+
+	vk::DescriptorBufferInfo bufferInfo = vk::DescriptorBufferInfo()
+		.setBuffer(buffer)
+		.setOffset(0)
+		.setRange(sizeof(mvp));
+	
 
 	// 8. Init Pipeline Layout
 	vk::DescriptorSetLayoutBinding layoutBinding = vk::DescriptorSetLayoutBinding()
@@ -512,33 +506,29 @@ int main()
 		.setSize(sizeof(g_vb_solid_face_colors_Data))
 		.setSharingMode(vk::SharingMode::eExclusive);
 
-	std::vector<vk::Buffer> vertexBuffer(swapchainImages.size());
+	vk::Buffer vertexBuffer = device.createBuffer(vBufferInfo);
+	memReqs = device.getBufferMemoryRequirements(vertexBuffer);
+	vk::MemoryAllocateInfo memAlloc3 = vk::MemoryAllocateInfo()
+		.setAllocationSize(memReqs.size);
 
-	for (uint32_t i = 0; i < swapchainImages.size(); i++) {
-		vertexBuffer[i] = device.createBuffer(vBufferInfo);
-		memReqs = device.getBufferMemoryRequirements(vertexBuffer[i]);
-		vk::MemoryAllocateInfo memAlloc3 = vk::MemoryAllocateInfo()
-			.setAllocationSize(memReqs.size);
-
-		typeBits = memReqs.memoryTypeBits;
-		for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
-			if (typeBits & 1 == 1) {
-				if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) {
-					memAlloc3.setMemoryTypeIndex(i);
-					break;
-				}
+	typeBits = memReqs.memoryTypeBits;
+	for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
+		if (typeBits & 1 == 1) {
+			if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) {
+				memAlloc3.setMemoryTypeIndex(i);
+				break;
 			}
-			typeBits >>= 1;
 		}
-
-		vk::DeviceMemory bufferMem = device.allocateMemory(memAlloc3);
-
-		void * memPtr = device.mapMemory(bufferMem, 0, memReqs.size);
-		memcpy(memPtr, &g_vb_solid_face_colors_Data, sizeof(g_vb_solid_face_colors_Data));
-		device.unmapMemory(bufferMem);
-
-		device.bindBufferMemory(vertexBuffer[i], bufferMem, 0);
+		typeBits >>= 1;
 	}
+
+	bufferMem = device.allocateMemory(memAlloc3);
+
+	memPtr = device.mapMemory(bufferMem, 0, memReqs.size);
+	memcpy(memPtr, &g_vb_solid_face_colors_Data, sizeof(g_vb_solid_face_colors_Data));
+	device.unmapMemory(bufferMem);
+
+	device.bindBufferMemory(vertexBuffer, bufferMem, 0);
 
 	vk::VertexInputBindingDescription viBinding = vk::VertexInputBindingDescription()
 		.setBinding(0)
@@ -561,10 +551,9 @@ int main()
 	vk::DescriptorSetAllocateInfo allocInfo = vk::DescriptorSetAllocateInfo(descriptorPool, 1, &descriptorLayout);
 	std::vector<vk::DescriptorSet> descriptorSets = device.allocateDescriptorSets(allocInfo);
 	std::vector<vk::WriteDescriptorSet> writes(1);
-	for (uint32_t i = 0; i < swapchainImages.size(); i++) {
-		writes[0] = vk::WriteDescriptorSet(descriptorSets[0], 0, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &bufferInfo[i], nullptr);
-		device.updateDescriptorSets(writes, NULL);
-	}
+	writes[0] = vk::WriteDescriptorSet(descriptorSets[0], 0, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &bufferInfo, nullptr);
+	device.updateDescriptorSets(writes, NULL);
+	
 	//commandBuffer.end();
 
 	// Init Pipeline Cache
@@ -655,9 +644,10 @@ int main()
 		.setClearValueCount(2)
 		.setPClearValues(clearValues);
 
-	for (auto cmdbuff : drawCmdBuffer) {
+	for (uint32_t i = 0; i < drawCmdBuffer.size(); i++) {
 
-		rp_begin.setFramebuffer(framebuffers[currentBuffer]);
+		vk::CommandBuffer cmdbuff = drawCmdBuffer[i];
+		rp_begin.setFramebuffer(framebuffers[i]);
 
 		cmdbuff.begin(&cmdBeginInfo);
 		cmdbuff.beginRenderPass(rp_begin, vk::SubpassContents::eInline);
@@ -665,7 +655,7 @@ int main()
 		cmdbuff.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, 1, descriptorSets.data(), 0, NULL);
 
 		const vk::DeviceSize offsets[1] = { 0 };
-		cmdbuff.bindVertexBuffers(0, 1, &vertexBuffer[currentBuffer], offsets);
+		cmdbuff.bindVertexBuffers(0, 1, &vertexBuffer, offsets);
 
 		//Init Viewports
 		vk::Viewport viewport = vk::Viewport(0, 0, WIDTH, HEIGHT, 0, 1);
@@ -688,12 +678,13 @@ int main()
 	// This is where most initializtion for a program should be performed
 
 	// Poll for user input.
+	vk::PipelineStageFlags pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
+	uint32_t currentBuffer = 0;
 	bool stillRunning = true;
 	while (stillRunning) {
 
 		device.acquireNextImageKHR(swapchain, UINT64_MAX, imageAcquiredSemaphore, nullptr, &currentBuffer);
 
-		vk::PipelineStageFlags pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
 		std::vector<vk::SubmitInfo> submitInfo(1);
 		submitInfo[0] = vk::SubmitInfo()
 			.setPWaitDstStageMask(&pipeStageFlags)
@@ -709,7 +700,7 @@ int main()
 			.setPSwapchains(&swapchain)
 			.setPImageIndices(&currentBuffer)
 			.setWaitSemaphoreCount(1)
-			.setPWaitSemaphores(&imageAcquiredSemaphore);
+			.setPWaitSemaphores(&imageRenderSemaphore);
 
 		graphicsQueue.submit(submitInfo, drawFence[currentBuffer]);
 
@@ -752,10 +743,10 @@ int main()
 	device.destroyImageView(depthImageView);
 	device.destroyImage(depthImage);
 	device.freeMemory(depthMem);
+	device.destroyBuffer(vertexBuffer);
+	device.destroyBuffer(buffer);
 	for (int i = 0; i < swapchainImages.size(); i++) {
 		device.destroyImageView(scImageViews[i]);
-		device.destroyBuffer(vertexBuffer[i]);
-		device.destroyBuffer(buffer[i]);
 	}
 	device.destroySwapchainKHR(swapchain);
 	device.freeCommandBuffers(commandPool, commandBuffer);
