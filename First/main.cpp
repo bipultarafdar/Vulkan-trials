@@ -106,6 +106,25 @@ static const Vertex g_vb_solid_face_colors_Data[] = {
 	{ XYZ1(-1, -1, -1), XYZ1(0.f, 1.f, 1.f) },
 };
 
+glm::vec3 eye = glm::vec3(-5, 3, -5);
+glm::vec3 origin = glm::vec3(0, 0, 0);
+glm::vec3 head = glm::vec3(0, 1, 0);
+glm::mat4 projection = glm::perspective(glm::radians(45.0f), 2.0f, 0.1f, 100.0f);
+glm::mat4 view = glm::lookAt( eye,  // Camera is at (-5,3,-10), in World Space
+	origin,     // and looks at the origin
+	head     // Head is up (set to 0,-1,0 to look upside-down)
+);
+glm::mat4 model = glm::mat4(1.0f);
+
+// Vulkan clip space has inverted Y and half Z.
+// clang-format off
+glm::mat4 clip = glm::mat4(1.0f, 0.0f, 0.0f, 0.0f,
+	0.0f, -1.0f, 0.0f, 0.0f,
+	0.0f, 0.0f, 0.5f, 0.0f,
+	0.0f, 0.0f, 0.5f, 1.0f);
+// clang-format on
+glm::mat4 mvp = clip * projection * view * model;
+
 static std::vector<char> readFile(const std::string& filename) {
 	std::ifstream file(filename, std::ios::ate | std::ios::binary);
 
@@ -120,6 +139,21 @@ static std::vector<char> readFile(const std::string& filename) {
 	file.close();
 
 	return buffer;
+}
+
+void rotateCamera(float theta, vk::Device device, vk::DeviceMemory bufferMem, vk::DeviceSize memSize) {
+	int radius = glm::distance(origin, eye);
+	int eyeX = eye.x + radius * glm::cos(glm::radians(theta));
+	int eyeY = eye.y + radius * glm::sin(glm::radians(theta));
+
+	//SDL_LogMessage(SDL_LOG_CATEGORY_TEST, SDL_LOG_PRIORITY_INFO, "Eye.x is %f and Eye.y is %f", eye.x, eye.y);
+
+	view = glm::lookAt(glm::vec3(eyeX, eyeY, eye.z), origin, head);
+	glm::mat4 mvp = clip * projection * view * model;
+
+	void * memPtr = device.mapMemory(bufferMem, 0, memSize);
+	memcpy(memPtr, &mvp, sizeof(mvp));
+	device.unmapMemory(bufferMem);
 }
 
 int main()
@@ -356,21 +390,6 @@ int main()
 	vk::ImageView depthImageView = device.createImageView(viewInfo);
 
 	// 7. Create Uniform Buffer
-	glm::mat4 projection = glm::perspective(glm::radians(45.0f), 2.0f, 0.1f, 100.0f);
-	glm::mat4 view = glm::lookAt(glm::vec3(-5, 3, -5),  // Camera is at (-5,3,-10), in World Space
-		glm::vec3(0, 0, 0),     // and looks at the origin
-		glm::vec3(0, 1, 0)     // Head is up (set to 0,-1,0 to look upside-down)
-	);
-	glm::mat4 model = glm::mat4(1.0f);
-
-	// Vulkan clip space has inverted Y and half Z.
-	// clang-format off
-	glm::mat4 clip = glm::mat4(1.0f, 0.0f, 0.0f, 0.0f,
-		0.0f, -1.0f, 0.0f, 0.0f,
-		0.0f, 0.0f, 0.5f, 0.0f,
-		0.0f, 0.0f, 0.5f, 1.0f);
-	// clang-format on
-	glm::mat4 mvp = clip * projection * view * model;
 
 	vk::BufferCreateInfo bufferCInfo = vk::BufferCreateInfo()
 		.setUsage(vk::BufferUsageFlagBits::eUniformBuffer)
@@ -394,6 +413,9 @@ int main()
 	}
 
 	vk::DeviceMemory bufferMem = device.allocateMemory(memAlloc2);
+
+	vk::DeviceMemory rotatebuff = bufferMem;
+	int rotMemSize = memReqs.size;
 
 	void * memPtr = device.mapMemory(bufferMem, 0, memReqs.size);
 	memcpy(memPtr, &mvp, sizeof(mvp));
@@ -680,6 +702,7 @@ int main()
 	// Poll for user input.
 	vk::PipelineStageFlags pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
 	uint32_t currentBuffer = 0;
+	float theta = 0, delTheta = 1;
 	bool stillRunning = true;
 	while (stillRunning) {
 
@@ -711,6 +734,9 @@ int main()
 		device.resetFences(1, &drawFence[currentBuffer]);
 		
 		presentQueue.presentKHR(present);
+
+		theta += delTheta;
+		rotateCamera(theta, device, rotatebuff, rotMemSize);
 
 		SDL_Event event;
 		while (SDL_PollEvent(&event)) {
