@@ -379,35 +379,39 @@ int main()
 		.setSize(sizeof(mvp))
 		.setSharingMode(vk::SharingMode::eExclusive);
 
-	vk::Buffer buffer = device.createBuffer(bufferCInfo);
+	std::vector<vk::Buffer> buffer(swapchainImages.size());
+	std::vector<vk::DescriptorBufferInfo> bufferInfo(swapchainImages.size());
 
-	memReqs = device.getBufferMemoryRequirements(buffer);
-	vk::MemoryAllocateInfo memAlloc2 = vk::MemoryAllocateInfo()
-		.setAllocationSize(memReqs.size);
+	for (uint32_t i = 0; i < swapchainImages.size(); i++) {
+		buffer[i] = device.createBuffer(bufferCInfo);
+		memReqs = device.getBufferMemoryRequirements(buffer[i]);
+		vk::MemoryAllocateInfo memAlloc2 = vk::MemoryAllocateInfo()
+			.setAllocationSize(memReqs.size);
 
-	typeBits = memReqs.memoryTypeBits;
-	for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
-		if (typeBits & 1 == 1) {
-			if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) {
-				memAlloc2.setMemoryTypeIndex(i);
-				break;
+		typeBits = memReqs.memoryTypeBits;
+		for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
+			if (typeBits & 1 == 1) {
+				if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) {
+					memAlloc2.setMemoryTypeIndex(i);
+					break;
+				}
 			}
+			typeBits >>= 1;
 		}
-		typeBits >>= 1;
+
+		vk::DeviceMemory bufferMem = device.allocateMemory(memAlloc2);
+
+		void * memPtr = device.mapMemory(bufferMem, 0, memReqs.size);
+		memcpy(memPtr, &mvp, sizeof(mvp));
+		device.unmapMemory(bufferMem);
+
+		device.bindBufferMemory(buffer[i], bufferMem, 0);
+
+		bufferInfo[i] = vk::DescriptorBufferInfo()
+			.setBuffer(buffer[i])
+			.setOffset(0)
+			.setRange(sizeof(mvp));
 	}
-
-	vk::DeviceMemory bufferMem = device.allocateMemory(memAlloc2);
-
-	void * memPtr = device.mapMemory(bufferMem, 0, memReqs.size);
-	memcpy(memPtr, &mvp, sizeof(mvp));
-	device.unmapMemory(bufferMem);
-
-	device.bindBufferMemory(buffer, bufferMem, 0);
-
-	vk::DescriptorBufferInfo bufferInfo = vk::DescriptorBufferInfo()
-		.setBuffer(buffer)
-		.setOffset(0)
-		.setRange(sizeof(mvp));
 
 	// 8. Init Pipeline Layout
 	vk::DescriptorSetLayoutBinding layoutBinding = vk::DescriptorSetLayoutBinding()
@@ -508,29 +512,33 @@ int main()
 		.setSize(sizeof(g_vb_solid_face_colors_Data))
 		.setSharingMode(vk::SharingMode::eExclusive);
 
-	vk::Buffer vertexBuffer = device.createBuffer(vBufferInfo);
-	memReqs = device.getBufferMemoryRequirements(vertexBuffer);
-	vk::MemoryAllocateInfo memAlloc3 = vk::MemoryAllocateInfo()
-		.setAllocationSize(memReqs.size);
+	std::vector<vk::Buffer> vertexBuffer(swapchainImages.size());
 
-	typeBits = memReqs.memoryTypeBits;
-	for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
-		if (typeBits & 1 == 1) {
-			if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) {
-				memAlloc3.setMemoryTypeIndex(i);
-				break;
+	for (uint32_t i = 0; i < swapchainImages.size(); i++) {
+		vertexBuffer[i] = device.createBuffer(vBufferInfo);
+		memReqs = device.getBufferMemoryRequirements(vertexBuffer[i]);
+		vk::MemoryAllocateInfo memAlloc3 = vk::MemoryAllocateInfo()
+			.setAllocationSize(memReqs.size);
+
+		typeBits = memReqs.memoryTypeBits;
+		for (int i = 0; i < memoryProperties.memoryTypeCount; i++) {
+			if (typeBits & 1 == 1) {
+				if (memoryProperties.memoryTypes[i].propertyFlags == (vk::MemoryPropertyFlagBits::eHostVisible | vk::MemoryPropertyFlagBits::eHostCoherent)) {
+					memAlloc3.setMemoryTypeIndex(i);
+					break;
+				}
 			}
+			typeBits >>= 1;
 		}
-		typeBits >>= 1;
+
+		vk::DeviceMemory bufferMem = device.allocateMemory(memAlloc3);
+
+		void * memPtr = device.mapMemory(bufferMem, 0, memReqs.size);
+		memcpy(memPtr, &g_vb_solid_face_colors_Data, sizeof(g_vb_solid_face_colors_Data));
+		device.unmapMemory(bufferMem);
+
+		device.bindBufferMemory(vertexBuffer[i], bufferMem, 0);
 	}
-
-	bufferMem = device.allocateMemory(memAlloc3);
-
-	memPtr = device.mapMemory(bufferMem, 0, memReqs.size);
-	memcpy(memPtr, &g_vb_solid_face_colors_Data, sizeof(g_vb_solid_face_colors_Data));
-	device.unmapMemory(bufferMem);
-
-	device.bindBufferMemory(vertexBuffer, bufferMem, 0);
 
 	vk::VertexInputBindingDescription viBinding = vk::VertexInputBindingDescription()
 		.setBinding(0)
@@ -553,10 +561,10 @@ int main()
 	vk::DescriptorSetAllocateInfo allocInfo = vk::DescriptorSetAllocateInfo(descriptorPool, 1, &descriptorLayout);
 	std::vector<vk::DescriptorSet> descriptorSets = device.allocateDescriptorSets(allocInfo);
 	std::vector<vk::WriteDescriptorSet> writes(1);
-	writes[0] = vk::WriteDescriptorSet(descriptorSets[0], 0, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &bufferInfo, nullptr);
-
-	device.updateDescriptorSets(writes, NULL);
-
+	for (uint32_t i = 0; i < swapchainImages.size(); i++) {
+		writes[0] = vk::WriteDescriptorSet(descriptorSets[0], 0, 0, 1, vk::DescriptorType::eUniformBuffer, nullptr, &bufferInfo[i], nullptr);
+		device.updateDescriptorSets(writes, NULL);
+	}
 	//commandBuffer.end();
 
 	// Init Pipeline Cache
@@ -657,7 +665,7 @@ int main()
 		cmdbuff.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, pipelineLayout, 0, 1, descriptorSets.data(), 0, NULL);
 
 		const vk::DeviceSize offsets[1] = { 0 };
-		cmdbuff.bindVertexBuffers(0, 1, &vertexBuffer, offsets);
+		cmdbuff.bindVertexBuffers(0, 1, &vertexBuffer[currentBuffer], offsets);
 
 		//Init Viewports
 		vk::Viewport viewport = vk::Viewport(0, 0, WIDTH, HEIGHT, 0, 1);
@@ -733,7 +741,6 @@ int main()
 
 	//Clean
 	device.destroyPipeline(pipeline);
-	device.destroyBuffer(vertexBuffer);
 	device.destroyShaderModule(shaderStages[0].module);
 	device.destroyShaderModule(shaderStages[1].module);
 	device.destroyRenderPass(renderPass);
@@ -741,13 +748,14 @@ int main()
 	device.destroySemaphore(imageRenderSemaphore);
 	device.destroyDescriptorPool(descriptorPool);
 	device.destroyDescriptorSetLayout(descriptorLayout);
-	device.destroyBuffer(buffer);
-	device.freeMemory(bufferMem);
+	//device.freeMemory(bufferMem);
 	device.destroyImageView(depthImageView);
 	device.destroyImage(depthImage);
 	device.freeMemory(depthMem);
 	for (int i = 0; i < swapchainImages.size(); i++) {
 		device.destroyImageView(scImageViews[i]);
+		device.destroyBuffer(vertexBuffer[i]);
+		device.destroyBuffer(buffer[i]);
 	}
 	device.destroySwapchainKHR(swapchain);
 	device.freeCommandBuffers(commandPool, commandBuffer);
