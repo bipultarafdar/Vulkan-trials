@@ -124,6 +124,7 @@ glm::mat4 clip = glm::mat4(1.0f, 0.0f, 0.0f, 0.0f,
 	0.0f, 0.0f, 0.5f, 1.0f);
 // clang-format on
 glm::mat4 mvp = clip * projection * view * model;
+int radius = glm::distance(origin, eye);
 
 static std::vector<char> readFile(const std::string& filename) {
 	std::ifstream file(filename, std::ios::ate | std::ios::binary);
@@ -142,13 +143,12 @@ static std::vector<char> readFile(const std::string& filename) {
 }
 
 void rotateCamera(float theta, vk::Device device, vk::DeviceMemory bufferMem, vk::DeviceSize memSize) {
-	int radius = glm::distance(origin, eye);
-	int eyeX = eye.x + radius * glm::cos(glm::radians(theta));
-	int eyeY = eye.y + radius * glm::sin(glm::radians(theta));
+	float eyeX = radius * glm::sin(glm::radians(theta));
+	float eyeY = radius * glm::cos(glm::radians(theta));
+	float eyeZ = radius * glm::cos(glm::radians(theta));
+	//SDL_LogMessage(SDL_LOG_CATEGORY_TEST, SDL_LOG_PRIORITY_INFO, "Eye.x is %f and Eye.y is %f", eyeX, eyeY);
 
-	//SDL_LogMessage(SDL_LOG_CATEGORY_TEST, SDL_LOG_PRIORITY_INFO, "Eye.x is %f and Eye.y is %f", eye.x, eye.y);
-
-	view = glm::lookAt(glm::vec3(eyeX, eyeY, eye.z), origin, head);
+	view = glm::lookAt(glm::vec3(eyeX, eyeY, eyeZ), origin, head);
 	glm::mat4 mvp = clip * projection * view * model;
 
 	void * memPtr = device.mapMemory(bufferMem, 0, memSize);
@@ -702,7 +702,7 @@ int main()
 	// Poll for user input.
 	vk::PipelineStageFlags pipeStageFlags = vk::PipelineStageFlagBits::eColorAttachmentOutput;
 	uint32_t currentBuffer = 0;
-	float theta = 0, delTheta = 1;
+	float theta = 0, delTheta = 3;
 	bool stillRunning = true;
 	while (stillRunning) {
 
